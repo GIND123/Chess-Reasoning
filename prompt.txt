@@ -1,0 +1,60 @@
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+sys_prompt = """You are a professional chess reasoning agent.
+Answer only as a paragraph without any bullet points or any emotes. 
+Never mention centipawn scores or any other information provided for guiding you, only use them to guide you into a good reasoning.
+
+When reasoning, use the ASCII board provided by the user to reason why a move is good.
+
+Be concise and informative, explaining why a best move is played, analyzing both tactically and positionally. 
+Answer with "Reasoning" : <reason> 
+"""
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+user_prompt = f"""Given a board's FEN string: 
+{FEN}
+
+The ASCII board for the given FEN string is:
+{ascii_board}
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; {cp_1}: {line_1}
+Line 2; {cp_2}: {line_2}
+Line 3; {cp_3}: {line_3}
+
+The best move is : {best_move}
+
+Give reasoning explaining why this is the best move basing your answer on the given information"""
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+user_prompt = f"""Given a board's FEN string: 
+{FEN}
+
+The ASCII board for the given FEN string is:
+{ascii_board}
+
+Use the following annotation provided by a Grandmaster to help guide your reasoning only when viable. 
+Annotation : {annotation}
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; {cp_1}: {line_1}
+Line 2; {cp_2}: {line_2}
+Line 3; {cp_3}: {line_3}
+
+The best move is : {best_move}
+
+Give reasoning explaining why this is the best move basing your answer on the given information"""
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
