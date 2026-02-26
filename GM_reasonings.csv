@@ -1,0 +1,191 @@
+FEN,Annotation,prompt,reasoning
+r1bqr1k1/1pp2pp1/p1np1n1p/2b1p3/PPB1P3/2PPBN2/3N1PPP/R2Q1RK1 b - - 0 10,"The
+first new move of the game, finally forcing Black to take on e3.","Given a board's FEN string: 
+r1bqr1k1/1pp2pp1/p1np1n1p/2b1p3/PPB1P3/2PPBN2/3N1PPP/R2Q1RK1 b - - 0 10
+
+The ASCII board for the given FEN string is:
++---+---+---+---+---+---+---+---+
+| r | . | b | q | r | . | k | . |
++---+---+---+---+---+---+---+---+
+| . | p | p | . | . | p | p | . |
++---+---+---+---+---+---+---+---+
+| p | . | n | p | . | n | . | p |
++---+---+---+---+---+---+---+---+
+| . | . | b | . | p | . | . | . |
++---+---+---+---+---+---+---+---+
+| P | P | B | . | P | . | . | . |
++---+---+---+---+---+---+---+---+
+| . | . | P | P | B | N | . | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | N | . | P | P | P |
++---+---+---+---+---+---+---+---+
+| R | . | . | Q | . | R | K | . |
++---+---+---+---+---+---+---+---+
+
+Use the following annotation provided by a Grandmaster to help guide your reasoning only when viable. 
+Annotation : The
+first new move of the game, finally forcing Black to take on e3.
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; Cp(-11): c5e3 f2e3 c8e6 c4e6 e8e6 d1c2 a6a5 b4b5 c6b8 c3c4 b8d7 h2h3 f6h7 g1h2 h7g5 f3g1 e6f6 f1f6 d7f6 g1e2 c7c6 d2b3 d6d5
+Line 2; Cp(-36): c5a7 e3a7
+Line 3; Cp(-45): c5b6 e3b6 c7b6 f1e1 c8e6 c4e6 f7e6 b4b5 c6e7 d1b3 e7g6 g2g3 d8c7 a1b1 f6d7 b3c4 c7c4 d2c4 d6d5 c4d6 e8f8 g1g2 d7c5 d3d4 c5a4 e1e3 e5d4 c3d4 d5e4 d6e4 a6b5
+
+The best move is : c5e3
+
+Give reasoning explaining why this is the best move basing your answer on the given information","Reasoning : Capturing the bishop on e3 is the most precise move as it eliminates a key defensive piece for White while forcing a structural concession upon recapture. By exchanging on this square, Black compels White to alter their pawn formation, typically with the f-pawn, which opens lines near the white king and weakens the central pawn chain. This transaction allows Black to follow up with active development, such as placing the light-squared bishop on e6 to challenge White's remaining bishop and control important diagonals. Delaying this exchange would permit White to consolidate their position and maintain better coordination, whereas executing the capture immediately disrupts White's plans and provides Black with long-term positional pressure based on the compromised pawn structure and active piece placement."
+2r2qk1/p3bppp/2rpb1n1/3N4/4PB2/P1P3Q1/4B1PP/2R2R1K w - - 3 23,"This prepares the trade of the dark-squared bishops, the 
+most important theme in the Scheveningen. Once that they are swapped, the 
+black knight firmly occupies the e5-outpost, and White suffers with his 
+remaining bishop.","Given a board's FEN string: 
+2r2qk1/p3bppp/2rpb1n1/3N4/4PB2/P1P3Q1/4B1PP/2R2R1K w - - 3 23
+
+The ASCII board for the given FEN string is:
++---+---+---+---+---+---+---+---+
+| . | . | r | . | . | q | k | . |
++---+---+---+---+---+---+---+---+
+| p | . | . | . | b | p | p | p |
++---+---+---+---+---+---+---+---+
+| . | . | r | p | b | . | n | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | N | . | . | . | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | . | P | B | . | . |
++---+---+---+---+---+---+---+---+
+| P | . | P | . | . | . | Q | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | . | B | . | P | P |
++---+---+---+---+---+---+---+---+
+| . | . | R | . | . | R | . | K |
++---+---+---+---+---+---+---+---+
+
+Use the following annotation provided by a Grandmaster to help guide your reasoning only when viable. 
+Annotation : This prepares the trade of the dark-squared bishops, the 
+most important theme in the Scheveningen. Once that they are swapped, the 
+black knight firmly occupies the e5-outpost, and White suffers with his 
+remaining bishop.
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; Cp(-15): e2g4 g6f4 g3f4 f8e8 c1d1 h7h6 g4e6 f7e6 d5e7 e8e7 h2h3 c8f8 f4e3 f8f1 d1f1 a7a5 f1f3 c6c4 e3f4 c4c5 f4e3 c5e5 e3d4 e7c7 c3c4 c7c5
+Line 2; Cp(-19): f4d2 e7h4 g3d3 g6e5 d3d4 e5c4 d2f4 c6c5 e2c4 c5c4 d4d3 e6d5 d3d5 h4e7 c1d1 c4c3 f4d6 e7d6 d5d6 c3c7 d6f8 c8f8 h2h3 c7e7
+Line 3; Cp(-20): e2b5 e6d5
+
+The best move is : e2g4
+
+Give reasoning explaining why this is the best move basing your answer on the given information","Reasoning : The move Bishop to g4 is the most effective choice as it activates the passive bishop on e2 while immediately challenging Black's knight on g6 and initiating the critical exchange of dark-squared bishops. By positioning the bishop on g4, White forces a resolution that often leads to recapturing on f4 with the queen, thereby centralizing major pieces before eliminating Black's strong bishop on e6. This sequence leverages the powerful white knight on d5 and reduces Black's dark-square control, ensuring White maintains active piece play and pressure rather than allowing Black to consolidate comfortably. Although this trade opens the e5 square for Black's pieces, the immediate tactical activity and improvement of White's coordination outweigh the long-term structural considerations, making it the superior method to contest the position and utilize the open lines available on the board."
+rnb2rk1/pp4pp/2p5/q1P2pN1/3p4/P1PB4/3Q2PP/R4RK1 b - - 0 15,"This might be what Delgado missed. An important diagonal is 
+opened, and the white pieces crash through. Notice the idle black pieces 
+on the queenside. Only the queen is quick enough to come to the rescue, 
+but that is not enough.","Given a board's FEN string: 
+rnb2rk1/pp4pp/2p5/q1P2pN1/3p4/P1PB4/3Q2PP/R4RK1 b - - 0 15
+
+The ASCII board for the given FEN string is:
++---+---+---+---+---+---+---+---+
+| r | n | b | . | . | r | k | . |
++---+---+---+---+---+---+---+---+
+| p | p | . | . | . | . | p | p |
++---+---+---+---+---+---+---+---+
+| . | . | p | . | . | . | . | . |
++---+---+---+---+---+---+---+---+
+| q | . | P | . | . | p | N | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | p | . | . | . | . |
++---+---+---+---+---+---+---+---+
+| P | . | P | B | . | . | . | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | Q | . | . | P | P |
++---+---+---+---+---+---+---+---+
+| R | . | . | . | . | R | K | . |
++---+---+---+---+---+---+---+---+
+
+Use the following annotation provided by a Grandmaster to help guide your reasoning only when viable. 
+Annotation : This might be what Delgado missed. An important diagonal is 
+opened, and the white pieces crash through. Notice the idle black pieces 
+on the queenside. Only the queen is quick enough to come to the rescue, 
+but that is not enough.
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; Cp(-290): g8h8 d2e2 a5c5 e2h5 h7h6 g5f7 f8f7 h5f7 d4c3 g1h1 c5d5 f7e8 d5g8 a1e1 c8d7 e8e7 b7b5 h2h3 a7a5 f1f4
+Line 2; Cp(-401): a5c5 d2a2 g8h8 g5f7 f8f7 a2f7 d4c3 g1h1 c5d5 f7e7 h7h6 a1d1 d5g8 d3c2 c8d7 f1f3 c6c5 f3c3 c5c4 c3g3 f5f4 g3f3 d7e8 f3f4 b8c6 e7b7 a8b8 b7c7 b8b2 d1c1 c6d4 f4d4 g8e6 c2e4 e8g6
+Line 3; Cp(-407): d4c3 d2a2 g8h8 g5f7 f8f7 a2f7 a5c5 g1h1 c5d5 f7e7 h7h6 a1d1 d5g8 d3c2 c8d7 f1f3 c6c5 f3c3 c5c4 c3g3 a7a5
+
+The best move is : g8h8
+
+Give reasoning explaining why this is the best move basing your answer on the given information","Reasoning : The move King to h8 is a crucial defensive maneuver that relocates the king away from the g-file where White's coordinated pieces are generating significant pressure. With the White Knight on g5 and Bishop on d3 aiming at the kingside, leaving the king on g8 exposes Black to dangerous tactical threats involving opened diagonals and potential mating nets. Alternative moves that attempt to capture material or counterattack on the queenside neglect the immediate danger, allowing White to crash through with decisive force while Black's queenside pieces remain too idle to provide adequate support. By shifting the king to the corner, Black avoids immediate tactical vulnerabilities and prepares to organize a defense against the impending assault, recognizing that securing the king is the only way to survive the aggressive positioning of White's army."
+2rq3k/bbp1r1p1/p2p3p/Pp1n2N1/3PN1Q1/1B5P/1P3PP1/2R1R1K1 b - - 5 24,"And Player did 
+    not bluff. He had it all in his notebook. Now","Given a board's FEN string: 
+2rq3k/bbp1r1p1/p2p3p/Pp1n2N1/3PN1Q1/1B5P/1P3PP1/2R1R1K1 b - - 5 24
+
+The ASCII board for the given FEN string is:
++---+---+---+---+---+---+---+---+
+| . | . | r | q | . | . | . | k |
++---+---+---+---+---+---+---+---+
+| b | b | p | . | r | . | p | . |
++---+---+---+---+---+---+---+---+
+| p | . | . | p | . | . | . | p |
++---+---+---+---+---+---+---+---+
+| P | p | . | n | . | . | N | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | P | N | . | Q | . |
++---+---+---+---+---+---+---+---+
+| . | B | . | . | . | . | . | P |
++---+---+---+---+---+---+---+---+
+| . | P | . | . | . | P | P | . |
++---+---+---+---+---+---+---+---+
+| . | . | R | . | R | . | K | . |
++---+---+---+---+---+---+---+---+
+
+Use the following annotation provided by a Grandmaster to help guide your reasoning only when viable. 
+Annotation : And Player did 
+    not bluff. He had it all in his notebook. Now
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; Cp(-91): d8f8
+Line 2; Cp(-180): d8e8 g1h2 e8f8 g5e6 e7e6 g4e6 d5f4 e6d7 f4d3 c1c7 d3e1 c7b7 a7d4 d7g4 d4e5 e4g3 e1d3 b7f7 f8e8 b3d5 b5b4 f2f4 d3f4 f7f4 e5f4 g4f4 e8e5 f4f7 e5b2 d5e4
+Line 3; Cp(-234): a7d4 c1d1 c7c5 g4f5 h6g5 e4g5 d5f6 e1e7 d8e7 g5f7 h8g8 f7d6 g8f8 d6c8 e7e4 f5e4 f6e4 c8b6 d4f2 g1f1 f2d4 b3d5 b7d5 b6d5 e4g3 f1e1 d4b2 e1d2 c5c4 d2c2
+
+The best move is : d8f8
+
+Give reasoning explaining why this is the best move basing your answer on the given information","Reasoning : In this critical position, Black faces significant kingside pressure from White's coordinated pieces, specifically the knight on g5 and queen on g4 threatening the fragile pawn structure around the black king. The move queen to f8 is essential as it directly reinforces the f7 square, which is a primary target for White's attacking knights, while simultaneously providing additional cover to the g7 pawn and the h6 square without obstructing the rook on e7. By relocating the queen to f8, Black not only solidifies the defense against immediate tactical threats like sacrifices on h7 or f7 but also avoids potential vulnerabilities on the d-file that could arise from leaving the queen on its starting square. This precise defensive maneuver ensures the king remains secure while maintaining enough piece coordination to handle White's aggression, reflecting a calculated preparation to neutralize the opponent's initiative without compromising Black's own structural integrity or piece activity."
+1r2r3/5p1k/5Pp1/2p3Rp/1p6/P6R/1PP4P/1KQ1q3 w - - 6 31,"is also
+very bad for White. Usually when an attack goes wrong, the endgame is bad
+because you create weaknesses trying to attack.","Given a board's FEN string: 
+1r2r3/5p1k/5Pp1/2p3Rp/1p6/P6R/1PP4P/1KQ1q3 w - - 6 31
+
+The ASCII board for the given FEN string is:
++---+---+---+---+---+---+---+---+
+| . | r | . | . | r | . | . | . |
++---+---+---+---+---+---+---+---+
+| . | . | . | . | . | p | . | k |
++---+---+---+---+---+---+---+---+
+| . | . | . | . | . | P | p | . |
++---+---+---+---+---+---+---+---+
+| . | . | p | . | . | . | R | p |
++---+---+---+---+---+---+---+---+
+| . | p | . | . | . | . | . | . |
++---+---+---+---+---+---+---+---+
+| P | . | . | . | . | . | . | R |
++---+---+---+---+---+---+---+---+
+| . | P | P | . | . | . | . | P |
++---+---+---+---+---+---+---+---+
+| . | K | Q | . | q | . | . | . |
++---+---+---+---+---+---+---+---+
+
+Use the following annotation provided by a Grandmaster to help guide your reasoning only when viable. 
+Annotation : is also
+very bad for White. Usually when an attack goes wrong, the endgame is bad
+because you create weaknesses trying to attack.
+
+Use the below Centipawn loss (Cp) and move sequence to guide your reasoning:
+
+Line 1; Cp(-120): c1e1 e8e1 b1a2 b8c8 a3a4 e1f1 c2c4 f1f6 h3e3 h7h6 g5d5 f6f2 h2h3 f7f5 a4a5 f5f4 e3e6 f2h2 d5d6 c8g8 a5a6 h2h3 e6g6 g8g6 d6g6 h6g6 a6a7 b4b3 a2a3
+Line 2; Cp(-231): g5g1 e1c1
+Line 3; Cp(-237): a3a4 b8a8 b2b3 c5c4 g5g4 a8d8 g4g1 e1e5 b3c4 d8d4 h3d3 d4d3 c2d3 e5h2 g1d1 h2f2 c1b2 f2f3 b2c2 h5h4 c4c5 h4h3 c5c6 b4b3 c2b3 h3h2 b3f7 h7h6 f7e8 f3d1 b1b2 h2h1q e8h8 h6g5
+
+The best move is : c1e1
+
+Give reasoning explaining why this is the best move basing your answer on the given information","Reasoning : The move c1e1 is the strongest continuation because it forcibly exchanges queens, immediately removing Black's most dangerous attacking piece from the invasive e1 square near the white king on b1. By simplifying the position into a rook endgame, White mitigates the severe mating threats that exist while queens remain on the board, particularly given the exposed position of the white king on the back rank. This trade allows White to shift focus towards utilizing the advanced f6 pawn as a wedge against the black king on h7 while activating the rooks on the g and h files for counterplay. Keeping the queens on would allow Black to maintain intense pressure and coordinate a decisive assault, whereas this exchange reduces the complexity and offers White the best practical chance to leverage passed pawns on both wings to neutralize Black's initiative."
