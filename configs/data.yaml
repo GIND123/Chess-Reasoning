@@ -1,0 +1,17 @@
+# Band mix for the RL position set. Set A alone is ~99.8% tactical, which is why Set B
+# is sourced separately.
+bands:
+  near_tie: 0.40      # gap < 30 cp
+  moderate: 0.30      # 30-100 cp
+  decisive: 0.20      # 100-300 cp
+  tactical: 0.10      # > 300 cp and mates
+rl_positions: 40000
+test_positions: 6000
+engine:
+  nodes: 400000       # node limit, not time: reproducible across machines
+  threads: 1
+  hash_mb: 128
+gates:
+  tol_wp: 0.10
+  min_precision: 0.90
+  min_root_claims: 2

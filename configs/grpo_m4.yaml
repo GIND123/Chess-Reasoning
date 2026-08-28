@@ -1,0 +1,16 @@
+# M4 - sparse outcome RLVR (DeepSeek-R1 style). Binary correct/incorrect.
+model: runs/sft
+out_dir: runs/grpo_m4
+tables: data/final/tables.jsonl
+train_jsonl: data/final/rl_positions.jsonl
+terms:   [move, format, penalty]
+weights: [1.0,  0.2,    1.0]
+sparse_move: true
+steps: 400
+num_generations: 8
+per_device_bs: 24
+lr: 1.0e-6
+max_completion_length: 400
+loss_type: dapo
+beta: 0.0
+seed: 0

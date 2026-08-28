@@ -1,0 +1,17 @@
+# M6 - ours. Process-verified GRPO: graded move quality + claim grounding.
+model: runs/sft
+out_dir: runs/grpo_m6
+tables: data/final/tables.jsonl
+train_jsonl: data/final/rl_positions.jsonl
+terms:   [move, precision, coverage, format, penalty]
+weights: [1.0,  0.5,       0.3,      0.2,    1.0]
+sparse_move: false
+steps: 400
+num_generations: 8
+per_device_bs: 24
+lr: 1.0e-6
+max_completion_length: 400
+loss_type: dapo
+beta: 0.0
+epsilon_high: 0.28
+seed: 0

@@ -1,0 +1,17 @@
+# M2 - Master Distillation repro (Tang et al. 2026): unverified discovery-form SFT
+#      init + binary-correctness RLVR. Point `model` at runs/sft_m2.
+model: runs/sft_m2
+out_dir: runs/grpo_m2
+tables: data/final/tables.jsonl
+train_jsonl: data/final/rl_positions.jsonl
+terms:   [move, format]
+weights: [1.0,  0.2]
+sparse_move: true
+steps: 400
+num_generations: 8
+per_device_bs: 24
+lr: 1.0e-6
+max_completion_length: 400
+loss_type: dapo
+beta: 0.0
+seed: 0

@@ -1,0 +1,10 @@
+model: Qwen/Qwen3-4B-Instruct-2507
+out_dir: runs/sft
+epochs: 2.0
+lr: 1.0e-5
+per_device_bs: 4
+grad_accum: 8
+max_len: 1280
+lora_r: 32
+lora_alpha: 64
+seed: 0

@@ -1,0 +1,18 @@
+# A3 - the degenerate arm, run on purpose. Precision with no coverage term: the policy
+#      is expected to collapse toward asserting one trivially-true fact and stopping.
+#      Documented rather than assumed.
+model: runs/sft
+out_dir: runs/grpo_a3
+tables: data/final/tables.jsonl
+train_jsonl: data/final/rl_positions.jsonl
+terms:   [move, precision, format, penalty]
+weights: [1.0,  0.5,       0.2,    1.0]
+sparse_move: false
+steps: 400
+num_generations: 8
+per_device_bs: 24
+lr: 1.0e-6
+max_completion_length: 400
+loss_type: dapo
+beta: 0.0
+seed: 0

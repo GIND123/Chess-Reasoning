@@ -1,0 +1,22 @@
+# core
+chess==1.11.2
+numpy>=1.26
+pandas>=2.2
+pyyaml>=6.0
+tqdm>=4.66
+zstandard>=0.22
+
+# training / inference  (install torch matching your CUDA first)
+transformers>=4.57.0
+datasets>=3.2.0
+accelerate>=1.4.0
+peft>=0.15.0
+trl>=0.26.0
+vllm>=0.11.0
+
+# eval / stats
+scipy>=1.13
+statsmodels>=0.14
+
+# infra (optional)
+modal>=0.68
