@@ -29,7 +29,10 @@ class RerankResult:
 def trace_score(fen: str, completion: str, *, w_prec: float = 1.0, w_cov: float = 0.5,
                 w_fmt: float = 0.25, penalty_false: float = 1.0) -> float:
     """Engine-free quality score for a single trace."""
+    from chessr.boards import is_fen
     completion = completion_text(completion)
+    if not is_fen(fen):
+        return 0.0
     report = verify_structured_trace(fen, completion, engine_table=None)
     trace = parse_trace(completion, fen)
     n_false = sum(c.verdict is ClaimVerdict.FALSE for c in report.claims)

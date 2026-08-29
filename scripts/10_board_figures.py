@@ -54,7 +54,18 @@ def main():
     store = TableStore()
     for f in sorted(glob.glob(a.tables_glob)):
         store.load(f)
-    recs = [json.loads(l) for l in open(a.records) if l.strip()]
+    recs = []
+    for line in open(a.records):
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        if r.get("variant") not in (None, "base"):
+            continue
+        # evaluation records store every sample; generation records store one completion
+        if "completions" in r and r["completions"]:
+            r = {**r, "completion": r["completions"][0]}
+        if r.get("completion") and r.get("fen"):
+            recs.append(r)
 
     agree, disagree, hall = pick(recs, store)
     panels = []

@@ -183,7 +183,10 @@ def parse_trace(text: str, fen: str | None = None) -> Trace:
     algebraic and bare destination squares all normalise to legal UCI. A token that
     cannot be resolved is dropped rather than passed through as a phantom move.
     """
-    board = chess.Board(fen) if fen else None
+    try:
+        board = chess.Board(fen) if fen else None
+    except ValueError:
+        board = None
     t = Trace(raw=text)
     got = {}
     for k, rx in _TAG.items():

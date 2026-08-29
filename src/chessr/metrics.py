@@ -60,7 +60,10 @@ def _first_move(rec, idx=0):
 
 def score_record(rec: dict, *, rerank_n: int | None = None) -> dict:
     """All per-position quantities. Aggregation and grouping happen afterwards."""
+    from chessr.boards import is_fen
     fen, tbl = rec["fen"], rec.get("engine_table")
+    if not is_fen(fen):
+        fen = ""
     board = chess.Board(fen) if fen else None
     row = {
         "item_id": rec["item_id"], "benchmark": rec["benchmark"],
@@ -71,7 +74,7 @@ def score_record(rec: dict, *, rerank_n: int | None = None) -> dict:
         "truncated": float(bool(rec["finish_reason"]) and rec["finish_reason"][0] == "length"),
     }
 
-    move = _first_move(rec)
+    move = _first_move(rec) if fen else None
     row["move"] = move
     row["no_move"] = float(move is None)
     legal = bool(move and board and chess.Move.from_uci(move) in board.legal_moves)
@@ -117,7 +120,25 @@ def score_record(rec: dict, *, rerank_n: int | None = None) -> dict:
                    hard_violation=float("nan"), n_candidates=0, well_formed=0.0)
 
     # verified reranking -- engine-free, so it is a legitimate test-time method
-    if rerank_n and len(rec["completions"]) > 1:
+    # Self-consistency control. Verified reranking samples n traces and picks one, so the
+    # gain has to be separated from the gain of merely sampling n times and voting.
+    if fen and len(rec["completions"]) > 1:
+        from collections import Counter
+        kk = min(rerank_n or len(rec["completions"]), len(rec["completions"]))
+        moves_k = [_first_move(rec, i) for i in range(kk)]
+        votes = Counter(m for m in moves_k if m)
+        if votes and tbl:
+            maj = votes.most_common(1)[0][0]
+            best_u = max(tbl, key=tbl.get)
+            row[f"vote{kk}_top1"] = float(maj == best_u)
+            row[f"vote{kk}_wp_loss"] = (max(0.0, win_prob(tbl[best_u]) - win_prob(tbl[maj]))
+                                        if maj in tbl else 1.0)
+            cand = [m for m in moves_k if m in tbl]
+            if cand:
+                row[f"oracle{kk}_top1"] = float(max(cand, key=lambda m: tbl[m]) == best_u)
+
+    # QA benchmarks carry no position, so board-grounded reranking does not apply.
+    if rerank_n and fen and len(rec["completions"]) > 1:
         k = min(rerank_n, len(rec["completions"]))
         rr = rerank(fen, rec["completions"][:k])
         row[f"rerank{k}_move"] = rr.move
@@ -141,13 +162,20 @@ def _mean(xs):
 
 
 def bootstrap_ci(values, n_boot=10000, alpha=0.05, seed=0):
-    vals = [v for v in values if isinstance(v, (int, float)) and not math.isnan(v)]
-    if not vals:
+    """Percentile bootstrap. Vectorised: the metrics are recomputed often enough that a
+    pure-Python resample loop dominates the runtime of a whole results pass."""
+    import numpy as np
+    vals = np.asarray([v for v in values
+                       if isinstance(v, (int, float, bool)) and not (
+                           isinstance(v, float) and math.isnan(v))], dtype=float)
+    if vals.size == 0:
         return float("nan"), float("nan"), float("nan")
-    rng = random.Random(seed)
-    n = len(vals)
-    means = sorted(sum(vals[rng.randrange(n)] for _ in range(n)) / n for _ in range(n_boot))
-    return _mean(vals), means[int(n_boot * alpha / 2)], means[int(n_boot * (1 - alpha / 2))]
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, vals.size, size=(n_boot, vals.size))
+    means = np.sort(vals[idx].mean(axis=1))
+    return (float(vals.mean()),
+            float(means[int(n_boot * alpha / 2)]),
+            float(means[int(n_boot * (1 - alpha / 2))]))
 
 
 def aggregate(rows: list[dict], keys: list[str], group_by: str | None = None,
@@ -189,17 +217,19 @@ def paired_test(rows_a: list[dict], rows_b: list[dict], key: str,
         return {"n": 0}
     da = [a[i] for i in ids]
     db = [b[i] for i in ids]
-    obs = _mean(da) - _mean(db)
-    rng = random.Random(seed)
+    import numpy as np
+    A = np.asarray(da, dtype=float)
+    B = np.asarray(db, dtype=float)
+    d0 = A - B
+    obs = float(d0.mean())
+    rng = np.random.default_rng(seed)
     n = len(ids)
-    cnt = 0
-    for _ in range(n_boot):
-        idx = [rng.randrange(n) for _ in range(n)]
-        d = sum(da[j] - db[j] for j in idx) / n
-        if (d <= 0) if obs > 0 else (d >= 0):
-            cnt += 1
-    return {"n": n, "a": _mean(da), "b": _mean(db), "diff": obs,
-            "p": 2.0 * cnt / n_boot}
+    idx = rng.integers(0, n, size=(n_boot, n))
+    boot = d0[idx].mean(axis=1)
+    # two-sided: how often a resample lands on the other side of zero
+    cnt = int((boot <= 0).sum()) if obs > 0 else int((boot >= 0).sum())
+    return {"n": n, "a": float(A.mean()), "b": float(B.mean()), "diff": obs,
+            "p": min(1.0, 2.0 * cnt / n_boot)}
 
 
 def holm_bonferroni(pvals: dict[str, float], alpha: float = 0.05) -> dict[str, dict]:
