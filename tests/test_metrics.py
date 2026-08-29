@@ -47,8 +47,11 @@ class TestScoring:
         assert 0.0 < r["wp_loss"] < 0.1         # graded, not a cliff
 
     def test_illegal_move_flagged(self):
+        """An illegal move is an illegal move, not a missing one. The earlier assertion
+        here encoded the bug: normalisation maps both to move=None, which reported a 0%
+        illegal rate for a model that was proposing illegal moves."""
         r = score_record(rec(move="e2e5"))
-        assert r["no_move"] == 1.0              # unresolvable normalises to no move
+        assert r["illegal"] == 1.0 and r["no_move"] == 0.0
 
     def test_grounding_recorded(self):
         r = score_record(rec())
@@ -175,3 +178,23 @@ class TestBenchmarkRouting:
         it = Item(id="ok", benchmark="holdout", fen=START)
         out = build_variant_prompts([it], "base")
         assert len(out) == 1 and "FEN:" in out[0][1]
+
+
+class TestIllegalVsNoMove:
+    """An illegal move and no move at all are different failures. Normalisation maps both
+    to move=None, so they must be separated by whether the model wrote anything."""
+
+    def test_illegal_move_counts_as_illegal_not_missing(self):
+        r = rec(completions=[TRACE.replace("<move>e2e4</move>", "<move>e2e5</move>")])
+        row = score_record(r)
+        assert row["illegal"] == 1.0 and row["no_move"] == 0.0
+        assert row["produced_a_move"] == 1.0
+
+    def test_absent_move_tag_counts_as_missing(self):
+        r = rec(completions=[TRACE.replace("<move>e2e4</move>", "")])
+        row = score_record(r)
+        assert row["no_move"] == 1.0 and row["illegal"] == 0.0
+
+    def test_legal_move_is_neither(self):
+        row = score_record(rec())
+        assert row["illegal"] == 0.0 and row["no_move"] == 0.0

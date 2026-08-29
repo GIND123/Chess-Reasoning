@@ -61,11 +61,17 @@ class RewardBreakdown:
 
 
 def r_move(fen: str, chosen: str | None, table: dict[str, int] | None,
-           tol: float = TOL_WP) -> tuple[float, float, bool]:
+           tol: float | None = None) -> tuple[float, float, bool]:
     """Graded move quality in win probability. Returns (reward, wp_loss, legal).
 
     Win probability rather than centipawns: 50 cp is decisive at equality and irrelevant
     at +900, so a cp-linear reward would be nearly flat exactly where this corpus lives.
+
+    The reward is **dense and unthresholded**: `1 - wp_loss`. An earlier version clipped at
+    a tolerance (`1 - wp_loss/TOL`), which measured 88% of rollouts at exactly zero and left
+    37% of eight-rollout groups with no reward spread at all. GRPO's advantage is the
+    within-group deviation, so those groups contributed no gradient and move quality never
+    improved. Passing `tol` restores the old clipped behaviour for ablation only.
     """
     if not chosen or not table:
         return 0.0, 1.0, False
@@ -80,7 +86,9 @@ def r_move(fen: str, chosen: str | None, table: dict[str, int] | None,
     if cp_played is None:
         return 0.0, 1.0, True
     loss = max(0.0, win_prob(max(table.values())) - win_prob(cp_played))
-    return max(0.0, 1.0 - loss / tol), loss, True
+    if tol:                                   # clipped variant, kept for the ablation
+        return max(0.0, 1.0 - loss / tol), loss, True
+    return 1.0 - loss, loss, True
 
 
 def r_precision(report) -> float:
@@ -119,13 +127,14 @@ def r_format(trace) -> float:
 
 def score_completion(fen: str, completion, table: dict[str, int] | None,
                      *, weights: tuple[float, float, float, float] = (1.0, 0.5, 0.3, 0.2),
-                     use_penalties: bool = True) -> RewardBreakdown:
+                     use_penalties: bool = True,
+                     tol: float | None = None) -> RewardBreakdown:
     """The full composite reward for one rollout."""
     completion = completion_text(completion)
     trace = parse_trace(completion, fen)
     report = verify_structured_trace(fen, completion, table)
 
-    rm, wp_loss, legal = r_move(fen, trace.move, table)
+    rm, wp_loss, legal = r_move(fen, trace.move, table, tol)
     rp = r_precision(report)
     rc = r_coverage(report)
     rf = r_format(trace)
@@ -161,7 +170,7 @@ def score_completion(fen: str, completion, table: dict[str, int] | None,
 # change.
 # --------------------------------------------------------------------------- #
 
-def make_reward_fns(store, *, sparse: bool = False, tol: float = TOL_WP):
+def make_reward_fns(store, *, sparse: bool = False, tol: float | None = None):
     """Build the reward callables. `store` is a chessr.engine.TableStore.
 
     sparse=True gives the binary outcome reward used by comparisons M2 and M4.

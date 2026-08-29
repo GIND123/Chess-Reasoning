@@ -29,6 +29,8 @@ class GRPOSettings:
                              ["move", "precision", "coverage", "format", "penalty"])
     weights: list[float] = field(default_factory=lambda: [1.0, 0.5, 0.3, 0.2, 1.0])
     sparse_move: bool = False
+    # None = dense reward (1 - wp_loss). A float restores the clipped variant.
+    move_tol: float | None = None
 
     # optimisation
     steps: int = 400
@@ -97,7 +99,7 @@ def train(cfg: GRPOSettings):
     if not len(store):
         raise SystemExit(f"no engine tables at {cfg.tables}; run scripts/01_engine_tables.py")
 
-    all_fns = make_reward_fns(store, sparse=cfg.sparse_move)
+    all_fns = make_reward_fns(store, sparse=cfg.sparse_move, tol=cfg.move_tol)
     missing = [t for t in cfg.terms if t not in all_fns]
     if missing:
         raise SystemExit(f"unknown reward terms: {missing}")

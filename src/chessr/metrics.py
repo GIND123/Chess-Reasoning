@@ -74,11 +74,18 @@ def score_record(rec: dict, *, rerank_n: int | None = None) -> dict:
         "truncated": float(bool(rec["finish_reason"]) and rec["finish_reason"][0] == "length"),
     }
 
-    move = _first_move(rec) if fen else None
+    # `resolve_move` returns None for a token that cannot be made legal, so "produced an
+    # illegal move" and "produced nothing" both surface as move=None. They are different
+    # failures and must be counted separately: conflating them reports a 0% illegal rate
+    # for a model that is in fact proposing illegal moves.
+    tr_full = parse_trace(rec["completions"][0], fen) if (fen and rec["completions"]) else None
+    move = tr_full.move if tr_full else None
+    raw = (tr_full.move_raw if tr_full else "") or ""
     row["move"] = move
-    row["no_move"] = float(move is None)
-    legal = bool(move and board and chess.Move.from_uci(move) in board.legal_moves)
-    row["illegal"] = float(move is not None and not legal)
+    row["no_move"] = float(move is None and not raw.strip())
+    row["illegal"] = float(move is None and bool(raw.strip()))
+    row["produced_a_move"] = float(bool(raw.strip()))
+    legal = move is not None
 
     gold = set(rec.get("gold_moves") or [])
     row["top1"] = float(bool(move) and move in gold) if gold else float("nan")

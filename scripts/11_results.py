@@ -11,6 +11,7 @@ NAMES = {"sft": "SFT", "m6_composite": "M6 composite", "m3_move_only": "M3 move-
          "m4_sparse": "M4 sparse", "a3_no_coverage": "A3 no-coverage",
          "base_model": "Base"}
 HEAD = ["top1_engine", "top3_engine", "wp_loss", "illegal", "no_move",
+        "produced_a_move",
         "claim_precision", "n_claims", "n_false", "hard_violation",
         "well_formed", "tokens"]
 

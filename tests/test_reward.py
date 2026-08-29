@@ -175,3 +175,27 @@ class TestCompletionFormats:
     def test_score_completion_accepts_conversational(self):
         b = score_completion(START, [{"role": "assistant", "content": GOOD}], TABLE)
         assert b.chosen == "e2e4" and b.legal
+
+
+class TestDenseMoveReward:
+    """The clipped reward zeroed 88% of rollouts and left 37% of eight-rollout groups
+    with no spread at all; GRPO's advantage is the within-group deviation, so those
+    groups contributed no gradient. The dense form must never saturate."""
+
+    def test_dense_reward_orders_all_moves(self):
+        rs = [r_move(START, m, TABLE)[0] for m in ("e2e4", "d2d4", "g1f3", "a2a3", "h2h4")]
+        assert rs == sorted(rs, reverse=True), "ordering must be preserved everywhere"
+        assert all(r > 0 for r in rs), "no move may score exactly zero"
+
+    def test_clipped_variant_still_available_for_ablation(self):
+        assert r_move(START, "h2h4", TABLE, 0.10)[0] == 0.0
+        assert r_move(START, "h2h4", TABLE)[0] > 0.0
+
+    def test_group_spread_is_non_zero_for_bad_moves(self):
+        """Two poor moves of different quality must still be distinguishable."""
+        a = r_move(START, "a2a3", TABLE)[0]
+        b = r_move(START, "h2h4", TABLE)[0]
+        assert abs(a - b) > 0.01
+
+    def test_illegal_still_scores_zero(self):
+        assert r_move(START, "e2e5", TABLE)[0] == 0.0

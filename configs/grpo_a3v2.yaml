@@ -1,0 +1,23 @@
+# A3-v2 - precision without coverage, dense move reward
+# Move reward is dense (1 - wp_loss). The earlier clipped form (tol=0.10) scored 88% of
+# rollouts at exactly zero and left 37% of groups with no within-group spread, so the
+# move term contributed no gradient. move_tol is left unset to keep it dense.
+model: /runs/sft_merged
+out_dir: /runs/grpo_a3v2
+tables: /data/tables_pv
+train_jsonl: /data/rl_positions.jsonl
+terms:   [move, precision, format, penalty]
+weights: [1.0,  0.5,       0.2,    1.0]
+sparse_move: false
+steps: 2000
+num_generations: 8
+per_device_bs: 8
+grad_accum: 2
+lr: 1.0e-6
+max_completion_length: 400
+loss_type: dapo
+beta: 0.0
+epsilon_high: 0.28
+seed: 0
+gradient_checkpointing: true
+vllm_gpu_memory_utilization: 0.28

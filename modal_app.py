@@ -707,6 +707,59 @@ def eval_smoke(model: str = "Qwen/Qwen3-4B-Instruct-2507", adapter: str = ""):
                           "base,perturbed,no_reasoning"))
 
 
+@app.function(image=GPU_IMAGE, gpu="L40S", volumes=VOLUMES, secrets=HF_SECRET,
+              memory=32768, timeout=8 * 3600, retries=1)
+def evaluate_constrained(model: str, adapter: str | None = None,
+                         tag: str = "constrained", holdout_limit: int = 1500) -> str:
+    import json as _json
+    import os
+    import sys
+    sys.path.insert(0, "/root")
+    from chessr.benchmarks import Item
+    from chessr.engine import TableStore
+    from chessr.evalsuite import run_constrained, run_id_for
+
+    with open("/data/eval_items.jsonl") as fh:
+        items = [Item(**_json.loads(l)) for l in fh if l.strip()]
+    items = [i for i in items if i.fen and not i.question][:holdout_limit]
+    wanted = {i.fen for i in items}
+    tdir = "/data/tables_pv" if os.path.isdir("/data/tables_pv") else "/data/tables"
+    store = TableStore().load_dir(tdir, keep=wanted)
+    if os.path.isdir("/data/eval_tables"):
+        store.load_dir("/data/eval_tables", keep=wanted)
+    for it in items:
+        if not it.gold_moves and (t := store.get(it.fen)):
+            b = max(t.values())
+            it.gold_moves = [u for u, cp in t.items() if cp == b]
+
+    rid = run_id_for(model, adapter, tag)
+    out = f"/runs/eval/{rid}.jsonl"
+    os.makedirs("/runs/eval", exist_ok=True)
+    run_constrained(items, model, adapter, out, tables=store)
+    runs.commit()
+    _hub_push(out, f"eval/{rid}.jsonl")
+    return out
+
+
+@app.local_entrypoint()
+def eval_constrained(adapter: str = "/runs/grpo_m6v2", tag: str = "m6v2_constrained",
+                     n: int = 1500):
+    print(evaluate_constrained.remote("/runs/sft_merged", adapter or None, tag, n))
+
+
+@app.local_entrypoint()
+def eval_v2(n_samples: int = 4):
+    """Evaluate the dense-reward arms on the same frozen item set as v1."""
+    merged = "/runs/sft_merged"
+    systems = [(merged, "/runs/grpo_m6v2", "m6v2"),
+               (merged, "/runs/grpo_m3v2", "m3v2"),
+               (merged, "/runs/grpo_a3v2", "a3v2")]
+    args = [(m, a, t, n_samples, 3615, 150, 100, 400, "base,perturbed,no_reasoning")
+            for m, a, t in systems]
+    for p in evaluate.starmap(args):
+        print("records:", p)
+
+
 @app.local_entrypoint()
 def eval_sweep(n_samples: int = 4, holdout_limit: int = 3615,
                lichess_per_band: int = 150, chessqa_per_config: int = 100,
