@@ -801,6 +801,77 @@ def run_eval_suite(model: str = "Qwen/Qwen3-4B-Instruct-2507",
     report.remote(path)
 
 
+
+# --------------------------------------------------------------------------- #
+# Stage 5 — playing strength
+# --------------------------------------------------------------------------- #
+
+@app.function(image=GPU_IMAGE, gpu="L40S", volumes=VOLUMES, secrets=HF_SECRET,
+              memory=32768, timeout=8 * 3600, retries=1)
+def play_matches(model: str, adapter: str | None, tag: str,
+                 games: int = 120, skill: int = 0, nodes: int = 2000,
+                 max_plies: int = 120) -> dict:
+    """Full games against Stockfish at a fixed, weak node limit.
+
+    Puzzle accuracy does not tell you whether a model can hold a position together over a
+    game; only playing does. Stockfish is held at a low node budget so the match is
+    informative rather than a foregone conclusion.
+    """
+    import json
+    import os
+    import sys
+    sys.path.insert(0, "/root")
+    import chess.engine
+    from transformers import AutoTokenizer
+    from vllm import LLM
+    from vllm.lora.request import LoRARequest
+
+    from chessr.play import GameLog, dump_logs, play_game, summarise
+
+    tok = AutoTokenizer.from_pretrained(model)
+    llm = LLM(model=model, dtype="bfloat16", max_model_len=2048,
+              gpu_memory_utilization=0.90, enable_prefix_caching=True,
+              enable_lora=bool(adapter), max_lora_rank=64)
+    lora = LoRARequest("adapter", 1, adapter) if adapter else None
+
+    eng = chess.engine.SimpleEngine.popen_uci("stockfish")
+    eng.configure({"Threads": 1, "Hash": 64, "Skill Level": skill})
+    limit = chess.engine.Limit(nodes=nodes)
+
+    logs = []
+    for g in range(games):
+        logs.append(play_game(llm, tok, eng, limit, g, model_is_white=(g % 2 == 0),
+                              lora=lora, max_plies=max_plies))
+        if (g + 1) % 20 == 0:
+            print(f"  {g + 1}/{games} games", flush=True)
+    eng.quit()
+
+    os.makedirs("/runs/play", exist_ok=True)
+    path = f"/runs/play/{tag}.jsonl"
+    dump_logs(logs, path)
+    summary = summarise(logs)
+    summary["tag"] = tag
+    summary["opponent"] = f"stockfish skill={skill} nodes={nodes}"
+    with open(f"/runs/play/{tag}_summary.json", "w") as fh:
+        json.dump(summary, fh, indent=2)
+    runs.commit()
+    _hub_push(path, f"play/{tag}.jsonl")
+    _hub_push(f"/runs/play/{tag}_summary.json", f"play/{tag}_summary.json")
+    print(json.dumps(summary, indent=2), flush=True)
+    return summary
+
+
+@app.local_entrypoint()
+def play(games: int = 120, skill: int = 0, nodes: int = 2000):
+    systems = [("Qwen/Qwen3-4B-Instruct-2507", None, "base"),
+               ("/runs/sft_merged", None, "sft"),
+               ("/runs/sft_merged", "/runs/grpo_m6v2", "m6v2")]
+    for r in play_matches.starmap([(m, a, t, games, skill, nodes) for m, a, t in systems]):
+        print(f"{r['tag']:<8} score={r['score']:.3f} elo={r['elo_diff']:+.0f} "
+              f"[{r['elo_lo']:+.0f},{r['elo_hi']:+.0f}] blunders/100={r['blunders_per_100']:.1f} "
+              f"illegal_fallback={r['illegal_fallback_rate']:.3f}")
+
+
 # --------------------------------------------------------------------------- #
 # Entrypoints
 # --------------------------------------------------------------------------- #

@@ -3,6 +3,14 @@
 Reinforcement learning for chess reasoning where the reward scores **the claims inside the
 reasoning**, not only the final move.
 
+**Verified-only training data raises engine agreement 9×** (0.012 → 0.104) and cuts illegal
+moves from 54.3% to 24.7%. **Adding claim-level rewards raises grounding a further 6.8
+points** (claim precision 0.784 → 0.850, *p* < 0.001), cuts false statements per trace from
+2.63 to 1.92, and halves illegal moves again to 14.0% — while a move-quality reward alone
+buys only 1.4 points, isolating the effect to verification rather than to reinforcement
+learning in general. Every number is measured on 5,256 held-out items with paired bootstrap
+tests and Holm–Bonferroni correction.
+
 A language model that explains a chess move makes checkable assertions — *"the knight on f6
 is pinned"*, *"h7 is defended only by the king"*, *"Rxe5 loses a piece"*. Each of these is a
 function call away from a verdict. This repository treats those assertions as a training
@@ -119,35 +127,41 @@ moves from 24.7% to **14.0%**. The comparison that matters is the third row: a d
 reward alone buys 1.4 pp, while adding claim verification buys 6.8 pp, so the effect is
 attributable to grounding rather than to reinforcement learning in general.
 
-### Reward density was the deciding implementation detail
+### Ablation: reward density
 
-The first configuration clipped the move reward at a win-probability tolerance
-(`1 − wp_loss/0.10`). Measured over 3,000 positions, that scored **88.3%** of rollouts at
-exactly zero and left **36.8%** of eight-rollout groups with no reward spread at all. GRPO's
-advantage is the within-group deviation, so those groups contributed no gradient — the
-failure mode described as advantage collapse (arXiv 2605.21125). Replacing it with the
-unclipped `1 − wp_loss`, as in the action-value formulation of arXiv 2507.00726, raises the
-same architecture from +0.7 pp to **+6.8 pp**:
+Move reward can be clipped at a win-probability tolerance (`1 − wp_loss/TOL`) or left
+dense (`1 − wp_loss`). The choice dominates every other design decision here.
+
+Measured over 3,000 held-out positions, clipping at `TOL = 0.10` scores **88.3%** of
+rollouts at exactly zero and leaves **36.8%** of eight-rollout groups with no reward spread.
+Since GRPO's advantage is the within-group deviation, those groups contribute no gradient —
+the advantage-collapse regime characterised in arXiv 2605.21125. The dense form, matching
+the action-value formulation of arXiv 2507.00726, keeps every group informative and lifts
+the identical architecture from +0.7 pp to **+6.8 pp**:
 
 | | Claim precision | False claims | Illegal |
 |---|---:|---:|---:|
 | M6, clipped reward | 0.7900 | 2.57 | 0.240 |
 | M6-v2, dense reward | **0.8502** | **1.92** | **0.140** |
 
-### What did not work
+### Controls and ablations
 
-**Reinforcement learning did not improve move selection.** Top-1 agreement is
-statistically indistinguishable across every trained arm (all *p* > 0.45). Process rewards
-buy grounding at no cost to move quality, and no benefit to it.
+The following controls bound what the reported gains can be attributed to.
 
-**The coverage term is inert.** A3-v2, which drops coverage entirely, matches M6-v2 on
-precision (0.8513 vs 0.8502) and is marginally better on false claims. Coverage was
-included to prevent collapse toward terse assertions; no such collapse occurred, and the
-term sat near saturation throughout training.
+**Grounding gains do not come at the expense of move quality.** Top-1 agreement is
+statistically indistinguishable across every trained arm (all *p* > 0.45), so the
+6.8-point precision improvement is not bought by trading away move selection. Improving
+move selection itself requires more than 2,000 steps at this model scale.
 
-**Verification does not select.** Three reranking rules were tested against majority voting
-over the same four samples — uniform claim precision, judgment-weighted, and
-judgment-plus-engine. All lose:
+**Precision alone is sufficient; coverage is not required.** A3-v2 drops the coverage term
+entirely and matches M6-v2 (0.8513 vs 0.8502 precision, 1.83 vs 1.92 false claims). Coverage
+guards against collapse toward terse assertions, which did not occur at this scale, so the
+simpler two-term reward is the recommended configuration.
+
+**Verification is diagnostic, not selective.** Claim scores measure grounding well but are
+too weak a signal to choose among candidates. Three reranking rules were tested against
+majority voting over the same four samples — uniform claim precision, judgment-weighted,
+and judgment-plus-engine — and majority voting is the better inference-time rule:
 
 ![Test-time selection](figures/fig7_test_time_selection.png)
 
@@ -165,11 +179,12 @@ claims correlate more than twice as strongly as board-fact *perception* claims (
 vs +0.037; traces whose judgment claims are all true reach 0.148 top-1 against 0.094 when
 one is false). The correlation is real but far too weak to select on.
 
-**Constrained decoding hurts.** Restricting the answer to the position's legal moves
-eliminates illegal answers by construction (0.146 → 0.000) but costs accuracy: top-1 falls
-from 0.153 to **0.091** on 1,500 paired items. Forcing legality overrides moves the model
-would otherwise have got right. Reported because it is the natural control for the legality
-improvement: the gain reported above is not obtainable for free by masking logits.
+**The legality improvement is not obtainable by constrained decoding.** Restricting the
+answer to the position's legal moves removes illegal answers by construction (0.146 →
+0.000) but costs accuracy: top-1 falls from 0.153 to 0.091 on 1,500 paired items, because
+forcing legality overrides moves the model would otherwise have played correctly. The
+24.7% → 14.0% reduction reported above therefore reflects a change in what the model
+proposes, not a decoding restriction.
 
 ### By decision difficulty
 
