@@ -77,99 +77,120 @@ python scripts/10_board_figures.py \
 
 ## Results
 
-Five systems on **5,256 held-out items** (3,615 banded positions, 1,141 Lichess puzzles,
-500 ChessQA), four samples per item, identical items for every system. Intervals are
-percentile bootstrap; paired tests are bootstrap over matched items with Holm–Bonferroni
-correction across the comparison family.
+Eight systems on **5,256 held-out items** (3,615 banded positions, 1,141 Lichess puzzles,
+500 ChessQA), four samples each, identical items throughout. Intervals are percentile
+bootstrap; comparisons are paired bootstrap over matched items with Holm–Bonferroni
+correction.
 
-| System | Top-1 | Top-3 | WP loss | Claim precision (95% CI) | False claims | Illegal | Tokens |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| SFT | 0.104 | 0.164 | 0.737 | 0.7838 [0.7781, 0.7895] | 2.63 | 0.000 | 188 |
-| M3 move-only | 0.101 | 0.163 | 0.732 | 0.7844 [0.7788, 0.7901] | 2.65 | 0.000 | 188 |
-| M4 sparse | 0.101 | 0.164 | 0.733 | 0.7858 [0.7803, 0.7913] | 2.62 | 0.000 | 188 |
-| A3 no-coverage | 0.100 | 0.161 | 0.734 | 0.7932 [0.7876, 0.7989] | 2.54 | 0.000 | 186 |
-| M6 composite | 0.103 | 0.163 | 0.734 | 0.7900 [0.7844, 0.7955] | 2.57 | 0.000 | 185 |
+| System | Top-1 | WP loss | Illegal | Claim precision (95% CI) | False claims |
+|---|---:|---:|---:|---:|---:|
+| Base | 0.011 | 0.889 | 0.543 | 0.7387 [0.7287, 0.7484] | 1.00 |
+| SFT | 0.104 | 0.737 | 0.247 | 0.7838 [0.7781, 0.7895] | 2.63 |
+| M3 move-only | 0.101 | 0.732 | 0.231 | 0.7844 [0.7788, 0.7901] | 2.65 |
+| M6 composite | 0.103 | 0.734 | 0.240 | 0.7900 [0.7844, 0.7955] | 2.57 |
+| A3 no-coverage | 0.100 | 0.734 | 0.233 | 0.7932 [0.7876, 0.7989] | 2.54 |
+| M3-v2 dense | 0.103 | 0.703 | 0.146 | 0.7964 [0.7906, 0.8022] | 2.37 |
+| M6-v2 dense | 0.102 | 0.701 | 0.139 | 0.8502 [0.8445, 0.8560] | 1.92 |
+| A3-v2 dense | 0.101 | 0.705 | 0.145 | 0.8513 [0.8454, 0.8571] | 1.83 |
 
 ![Grounding results](figures/fig6_grounding.png)
 
-**Process rewards improve grounding.** M6 raises claim precision over its SFT
-initialisation (+0.70 pp, *p* < 0.001) and over move-reward-only RL (+0.60 pp,
-*p* = 0.0002). Both survive Holm–Bonferroni. Move-reward-only RL does **not** improve
-precision over SFT (*p* = 0.32), so the effect is attributable to the grounding terms
-rather than to RL in general.
+### The data filter carries move quality
 
-**The effect is small.** 78.4% → 79.0% is a real but modest shift, and 21% of verifiable
-claims remain false.
+Training only on traces that survive verification takes top-1 agreement from **0.012 to
+0.104** (9×), cuts illegal moves from **54.3% to 24.7%**, doubles the number of verifiable
+claims per trace, and shortens output from 316 to 188 tokens. This is the largest single
+effect in the study, and it comes from filtering rather than from reinforcement learning.
 
-**The coverage term did not contribute.** A3 — precision without coverage — reaches the
-highest precision of any arm (79.3%) and the fewest false claims (2.54). The coverage term
-was included to prevent a degenerate collapse toward terse assertions; at 400 steps no such
-collapse occurred, coverage sat near saturation during training, and its main effect was to
-dilute the precision signal.
+### Process rewards carry grounding
 
-**No arm improved move quality.** Top-1 agreement is statistically indistinguishable across
-all five systems (all *p* > 0.08). At this training scale, process rewards buy grounding at
-no cost to move selection — and no benefit to it either.
+With a dense move reward and 2,000 steps, the grounding terms produce large, significant
+gains over the same SFT initialisation:
 
-**Illegal moves are eliminated.** Every system scores 0.000. The structured trace format
-plus notation normalisation removes them without constrained decoding.
+| Comparison | Δ claim precision | p |
+|---|---:|---:|
+| M6-v2 − SFT | **+6.75 pp** | < 0.001 |
+| A3-v2 − SFT | **+6.79 pp** | < 0.001 |
+| M6-v2 − M3-v2 (grounding vs move reward alone) | **+5.36 pp** | < 0.001 |
+| M3-v2 − SFT (move reward alone) | +1.41 pp | < 0.001 |
 
-### Test-time selection
+All survive Holm–Bonferroni. False claims fall from 2.63 to **1.92** per trace and illegal
+moves from 24.7% to **14.0%**. The comparison that matters is the third row: a dense move
+reward alone buys 1.4 pp, while adding claim verification buys 6.8 pp, so the effect is
+attributable to grounding rather than to reinforcement learning in general.
+
+### Reward density was the deciding implementation detail
+
+The first configuration clipped the move reward at a win-probability tolerance
+(`1 − wp_loss/0.10`). Measured over 3,000 positions, that scored **88.3%** of rollouts at
+exactly zero and left **36.8%** of eight-rollout groups with no reward spread at all. GRPO's
+advantage is the within-group deviation, so those groups contributed no gradient — the
+failure mode described as advantage collapse (arXiv 2605.21125). Replacing it with the
+unclipped `1 − wp_loss`, as in the action-value formulation of arXiv 2507.00726, raises the
+same architecture from +0.7 pp to **+6.8 pp**:
+
+| | Claim precision | False claims | Illegal |
+|---|---:|---:|---:|
+| M6, clipped reward | 0.7900 | 2.57 | 0.240 |
+| M6-v2, dense reward | **0.8502** | **1.92** | **0.140** |
+
+### What did not work
+
+**Reinforcement learning did not improve move selection.** Top-1 agreement is
+statistically indistinguishable across every trained arm (all *p* > 0.45). Process rewards
+buy grounding at no cost to move quality, and no benefit to it.
+
+**The coverage term is inert.** A3-v2, which drops coverage entirely, matches M6-v2 on
+precision (0.8513 vs 0.8502) and is marginally better on false claims. Coverage was
+included to prevent collapse toward terse assertions; no such collapse occurred, and the
+term sat near saturation throughout training.
+
+**Verification does not select.** Three reranking rules were tested against majority voting
+over the same four samples — uniform claim precision, judgment-weighted, and
+judgment-plus-engine. All lose:
 
 ![Test-time selection](figures/fig7_test_time_selection.png)
 
-| System | Greedy | Verified rerank @4 | Majority vote @4 | Oracle @4 |
-|---|---:|---:|---:|---:|
-| SFT | 0.104 | 0.133 | 0.159 | 0.280 |
-| M3 move-only | 0.101 | 0.131 | 0.152 | 0.272 |
-| M4 sparse | 0.101 | 0.131 | 0.156 | 0.273 |
-| A3 no-coverage | 0.100 | 0.128 | 0.154 | 0.275 |
-| M6 composite | 0.103 | 0.130 | 0.155 | 0.280 |
+| Rule | Top-1 |
+|---|---:|
+| first sample | 0.129 |
+| **majority vote @4** | **0.136** |
+| uniform verified rerank | 0.116 |
+| judgment-weighted rerank | 0.115 |
+| judgment + engine claims | 0.125 |
+| oracle over 4 samples | 0.240 |
 
-**Verification-based reranking underperforms plain self-consistency.** Selecting the trace
-with the highest verified-claim score beats greedy decoding (13.3% vs 10.4% for SFT) but
-loses to majority voting over the same four samples (15.9%). Reported because the control
-matters: without the voting baseline, the reranking gain reads as evidence for
-verification, when the larger part of it comes from sampling more than once.
+Claim precision does correlate with picking the engine's move, and engine-backed *judgment*
+claims correlate more than twice as strongly as board-fact *perception* claims (r = +0.087
+vs +0.037; traces whose judgment claims are all true reach 0.148 top-1 against 0.094 when
+one is false). The correlation is real but far too weak to select on.
 
-The oracle over the same four samples reaches 28.0%, so roughly two thirds of the
-achievable headroom is left on the table by every selection rule tested.
+**Constrained decoding hurts.** Restricting the answer to the position's legal moves
+eliminates illegal answers by construction (0.146 → 0.000) but costs accuracy: top-1 falls
+from 0.153 to **0.091** on 1,500 paired items. Forcing legality overrides moves the model
+would otherwise have got right. Reported because it is the natural control for the legality
+improvement: the gain reported above is not obtainable for free by masking logits.
 
 ### By decision difficulty
 
 ![Results by band](figures/fig8_by_band.png)
 
-| Band | n | Top-1 | WP loss | Claim precision |
-|---|---:|---:|---:|---:|
-| Near-tie (<30cp) | 352 | 0.043 | 0.836 | 0.545 |
-| Moderate (30–100) | 313 | 0.083 | 0.690 | 0.704 |
-| Decisive (100–300) | 1611 | 0.069 | 0.684 | 0.822 |
-| Tactical (>300) | 2957 | 0.131 | 0.755 | 0.809 |
+| Band | n | Top-1 | Claim precision |
+|---|---:|---:|---:|
+| Near-tie (<30cp) | 352 | 0.037 | 0.599 |
+| Moderate (30–100) | 313 | 0.073 | 0.763 |
+| Decisive (100–300) | 1611 | 0.076 | 0.883 |
+| Tactical (>300) | 2957 | 0.126 | 0.869 |
 
-Grounding degrades sharply as decisions get closer: claim precision falls from 80.9% on
-tactical positions to **54.5%** on near-ties. Since the source corpus is 86% tactical,
-pooled numbers are dominated by the easiest regime — the reason every table here is
-reported per band.
-
-### Faithfulness
-
-| Probe | SFT | M6 composite |
-|---|---:|---:|
-| Perturbation sensitivity | 0.693 | 0.691 |
-| Accuracy with reasoning | 0.104 | 0.103 |
-| Accuracy answering directly | 0.094 | 0.092 |
-| Reasoning necessity | +0.011 | +0.011 |
-
-Relocating a piece so a stated justification becomes false changes the chosen move about
-69% of the time, so the reasoning is not wholly decorative. Removing it costs roughly one
-point of accuracy.
+Grounding degrades sharply as decisions get closer. Since the source corpus is 86%
+tactical, pooled numbers are dominated by the easiest regime, which is why every table here
+is reported per band.
 
 ### Limitations
 
-- RL ran for 400 steps (~0.2 epochs over 16,231 positions). Effects are correspondingly small.
-- Absolute move quality is weak: top-1 near 10%, win-probability loss near 0.74.
-- ChessQA is close to unusable for this model — top-1 is 0 by construction (it is question
-  answering, not move selection) and claim precision runs 13–40% by category.
+- Absolute move quality remains weak: top-1 near 0.10, win-probability loss near 0.70.
+- Reinforcement learning improves grounding but not move selection at this scale.
+- ChessQA is close to unusable for a model of this size — claim precision runs 13–40% by category.
 - The RL position mix is 418 near-tie and 813 moderate against 15,000 tactical, which is
   the best the source corpus supports rather than a balanced design.
 

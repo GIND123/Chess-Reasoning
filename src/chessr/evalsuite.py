@@ -222,17 +222,27 @@ def run_constrained(items, model: str, adapter: str | None, out_path: str,
         legal_sets.append(legal)
         keep.append((it, text, o))
 
-    outs2 = []
-    for pr, legal in zip(prompts2, legal_sets):
-        try:
-            from vllm.sampling_params import GuidedDecodingParams
-            gd = GuidedDecodingParams(choice=legal)
-            sp2 = SamplingParams(n=1, temperature=0.0, max_tokens=12, guided_decoding=gd)
-        except Exception:
-            sp2 = SamplingParams(n=1, temperature=0.0, max_tokens=12)
-        r = (llm.generate([pr], sp2, lora_request=lora) if lora
-             else llm.generate([pr], sp2))
-        outs2.append(r[0].outputs[0].text.strip())
+    # vLLM 0.27 exposes this as StructuredOutputsParams(choice=...), passed via
+    # `structured_outputs`. The older GuidedDecodingParams/`guided_decoding` name raises
+    # here; an earlier version of this function caught that and silently fell back to
+    # unconstrained decoding, which produced a "constrained" run in which 0/1500 answers
+    # were actually constrained. Import at module scope and let a failure surface.
+    from vllm.sampling_params import StructuredOutputsParams
+
+    # one request per position, all issued together: the constraint differs per position
+    # (each has its own legal-move list), but they still batch.
+    sp2 = [SamplingParams(n=1, temperature=0.0, max_tokens=8,
+                          structured_outputs=StructuredOutputsParams(choice=legal))
+           for legal in legal_sets]
+    outs2_raw = (llm.generate(prompts2, sp2, lora_request=lora) if lora
+                 else llm.generate(prompts2, sp2))
+    outs2 = [o.outputs[0].text.strip() for o in outs2_raw]
+
+    n_legal = sum(1 for f, legal in zip(outs2, legal_sets) if f in legal)
+    print(f"[constrained] answers inside the legal set: {n_legal}/{len(outs2)}", flush=True)
+    if outs2 and n_legal / len(outs2) < 0.95:
+        raise RuntimeError(
+            f"structured output did not constrain: only {n_legal}/{len(outs2)} legal")
 
     tmp = out_path + ".tmp"
     with open(tmp, "w") as fh:

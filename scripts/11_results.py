@@ -9,7 +9,8 @@ from chessr.metrics import (aggregate, faithfulness, holm_bonferroni, load_recor
 
 NAMES = {"sft": "SFT", "m6_composite": "M6 composite", "m3_move_only": "M3 move-only",
          "m4_sparse": "M4 sparse", "a3_no_coverage": "A3 no-coverage",
-         "base_model": "Base"}
+         "base_model": "Base",
+         "m6v2": "M6-v2 dense", "m3v2": "M3-v2 dense", "a3v2": "A3-v2 dense"}
 HEAD = ["top1_engine", "top3_engine", "wp_loss", "illegal", "no_move",
         "produced_a_move",
         "claim_precision", "n_claims", "n_false", "hard_violation",
@@ -33,7 +34,7 @@ def main():
     systems, rows_by = {}, {}
     for path in sorted(glob.glob(a.glob)):
         tag = tag_of(path)
-        if tag == "smoke":
+        if tag in ("smoke",) or "constrained" in tag or "constrained" in path:
             continue
         recs = load_records(path)
         base = [r for r in recs if r["variant"] == "base"]
@@ -63,7 +64,11 @@ def main():
     comps, pvals = {}, {}
     pairs = [("m6_composite", "sft"), ("m3_move_only", "sft"), ("m4_sparse", "sft"),
              ("a3_no_coverage", "sft"), ("m6_composite", "m3_move_only"),
-             ("m6_composite", "a3_no_coverage"), ("m3_move_only", "m4_sparse")]
+             ("m6_composite", "a3_no_coverage"), ("m3_move_only", "m4_sparse"),
+             # dense-reward arms against the same SFT start and against their clipped twins
+             ("m6v2", "sft"), ("m3v2", "sft"), ("a3v2", "sft"),
+             ("m6v2", "m6_composite"), ("m3v2", "m3_move_only"),
+             ("m6v2", "m3v2")]
     for x, y in pairs:
         if x not in rows_by or y not in rows_by:
             continue

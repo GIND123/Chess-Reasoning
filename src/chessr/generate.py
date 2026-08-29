@@ -71,11 +71,11 @@ def sampling_params(cfg: GenConfig, *, legal_moves: Sequence[str] | None = None)
     kw = dict(n=cfg.n, temperature=cfg.temperature, top_p=cfg.top_p,
               max_tokens=cfg.max_tokens, seed=cfg.seed)
     if legal_moves:
-        try:
-            from vllm.sampling_params import GuidedDecodingParams
-            kw["guided_decoding"] = GuidedDecodingParams(choice=list(legal_moves))
-        except Exception:
-            pass
+        # vLLM 0.27 names this StructuredOutputsParams / `structured_outputs`. Do not wrap
+        # this in a bare except: silently falling back to unconstrained decoding produced
+        # a "constrained" evaluation in which none of the answers were constrained.
+        from vllm.sampling_params import StructuredOutputsParams
+        kw["structured_outputs"] = StructuredOutputsParams(choice=list(legal_moves))
     return SamplingParams(**kw)
 
 
