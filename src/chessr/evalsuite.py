@@ -44,6 +44,7 @@ class EvalRecord:
     finish_reason: list[str] = field(default_factory=list)
     gold_moves: list[str] = field(default_factory=list)
     solution: list[str] = field(default_factory=list)
+    meta_answer: str = ""
     rating: int | None = None
     themes: list[str] = field(default_factory=list)
     engine_table: dict | None = None      # slice for this fen: recomputes any move metric
@@ -67,9 +68,21 @@ def build_variant_prompts(items, variant: str, seed: int = 0):
     from chessr.evaluate import perturb_position
     from chessr.prompts import SYS_STUDENT, student_prompt
 
+    from chessr.boards import is_fen
+    SYS_QA = ("You are a chess expert. Answer the question exactly in the format shown. "
+              "Give only the answer, with no explanation.")
+
     rng = random.Random(seed)
     out = []
     for it in items:
+        # Question-answering benchmarks bring their own prompt and have no move to
+        # perturb, so they run in the base variant only.
+        if it.question:
+            if variant == "base":
+                out.append((it, it.question, SYS_QA, {"qa": True}))
+            continue
+        if not is_fen(it.fen):
+            continue
         if variant == "no_reasoning":
             out.append((it, student_prompt(it.fen), SYS_NO_REASONING, {}))
         elif variant == "perturbed":
@@ -139,6 +152,7 @@ def run_eval(items, model: str, adapter: str | None, out_path: str,
                     n_tokens=[len(c.token_ids) for c in o.outputs],
                     finish_reason=[c.finish_reason for c in o.outputs],
                     gold_moves=it.gold_moves, solution=it.solution,
+                    meta_answer=it.answer,
                     rating=it.rating, themes=it.themes,
                     engine_table=tbl,
                     meta={**it.meta, **extra},

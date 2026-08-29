@@ -14,6 +14,8 @@ from __future__ import annotations
 import ast
 import json
 import random
+
+from chessr.boards import is_fen
 from dataclasses import dataclass, field, asdict
 
 
@@ -26,6 +28,8 @@ class Item:
     solution: list[str] = field(default_factory=list)     # full line, UCI
     rating: int | None = None
     themes: list[str] = field(default_factory=list)
+    question: str = ""          # set for QA benchmarks that bring their own prompt
+    answer: str = ""            # reference answer, graded offline from saved records
     meta: dict = field(default_factory=dict)
 
     def to_json(self) -> dict:
@@ -147,11 +151,17 @@ def load_chessqa(n_per_config: int = 200, seed: int = 0) -> list[Item]:
         rng.shuffle(idx)
         for i in idx[:n_per_config]:
             row = df.iloc[i].to_dict()
-            fen = next((row[k] for k in ("fen", "FEN", "board_fen") if k in row and row[k]), "")
+            # ChessQA holds the position in `input` and the task in `question`; the
+            # answers are free form, so they are stored and graded offline from records.
+            raw = str(row.get("input", "") or "")
+            fen = raw if is_fen(raw) else ""
             out.append(Item(id=f"chessqa-{cfg}-{i}", benchmark=f"chessqa_{cfg}",
-                            fen=str(fen),
+                            fen=fen,
+                            question=str(row.get("question", "") or ""),
+                            answer=str(row.get("correct_answer", "") or ""),
                             meta={k: (v.tolist() if hasattr(v, "tolist") else v)
-                                  for k, v in row.items()}))
+                                  for k, v in row.items()
+                                  if k not in ("question", "correct_answer")}))
     return out
 
 
@@ -184,7 +194,7 @@ def load_mate(n: int = 1000, seed: int = 0) -> list[Item]:
         if m:
             fen = m.group(1)
         out.append(Item(id=f"mate-{i}", benchmark="mate", fen=fen, meta=dict(row)))
-    return [it for it in out if it.fen]
+    return [it for it in out if is_fen(it.fen)]
 
 
 def load_all(cfg: dict, tables=None) -> list[Item]:

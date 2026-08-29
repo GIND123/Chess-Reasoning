@@ -147,3 +147,31 @@ def test_records_roundtrip_through_disk():
         assert len(load_records(path, "base")) == 1
     finally:
         os.unlink(path)
+
+
+class TestBenchmarkRouting:
+    """Benchmarks carry rows whose position field is prose or empty. Those must be
+    filtered, not crash the harness -- this killed the first eval sweep."""
+
+    def test_qa_items_use_their_own_prompt_and_only_base(self):
+        from chessr.benchmarks import Item
+        from chessr.evalsuite import build_variant_prompts
+        qa = Item(id="q1", benchmark="chessqa_structural", fen="",
+                  question="List the pieces.", answer="White King: ['g1']")
+        base = build_variant_prompts([qa], "base")
+        assert len(base) == 1 and base[0][1] == "List the pieces."
+        for v in ("perturbed", "no_reasoning"):
+            assert build_variant_prompts([qa], v) == []
+
+    def test_unusable_fen_is_dropped(self):
+        from chessr.benchmarks import Item
+        from chessr.evalsuite import build_variant_prompts
+        junk = Item(id="j", benchmark="x", fen="structural_piece_0000")
+        assert build_variant_prompts([junk], "base") == []
+
+    def test_valid_position_still_routes_normally(self):
+        from chessr.benchmarks import Item
+        from chessr.evalsuite import build_variant_prompts
+        it = Item(id="ok", benchmark="holdout", fen=START)
+        out = build_variant_prompts([it], "base")
+        assert len(out) == 1 and "FEN:" in out[0][1]

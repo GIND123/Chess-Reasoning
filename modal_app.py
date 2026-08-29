@@ -69,7 +69,9 @@ CPU_IMAGE = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("curl", "tar")
     .run_commands(SF_INSTALL)
-    .pip_install("chess==1.11.2", "huggingface_hub>=0.28")
+    # benchmark loaders (Lichess, ChessQA, MATE) run on CPU too
+    .pip_install("chess==1.11.2", "huggingface_hub>=0.28",
+                 "datasets>=3.6.0", "pandas", "pyarrow")
     .add_local_dir("src/chessr", remote_path="/root/chessr")
 )
 
@@ -264,8 +266,8 @@ def generate_shard(shard_id: int, n_shards: int, model: str, n: int = 1,
 # Stage 2b — filtering (CPU; the data is already in the cloud)
 # --------------------------------------------------------------------------- #
 
-@app.function(image=CPU_IMAGE, cpu=8, volumes=VOLUMES, secrets=HF_SECRET,
-              timeout=4 * 3600)
+@app.function(image=CPU_IMAGE, cpu=8, memory=32768, volumes=VOLUMES,
+              secrets=HF_SECRET, timeout=4 * 3600)
 def filter_all(tol_wp: float = 0.10, min_precision: float = 0.90,
                graded: bool = False, out_name: str = "sft.jsonl") -> dict:
     """Apply the acceptance gates across every generation shard.
@@ -516,12 +518,110 @@ def merge(base: str = "Qwen/Qwen3-4B-Instruct-2507", adapter: str = "/runs/sft")
     print(merge_adapter.remote(base, adapter))
 
 
+
+# --------------------------------------------------------------------------- #
+# Stage 3b — freeze the evaluation set
+# --------------------------------------------------------------------------- #
+
+@app.function(image=CPU_IMAGE, cpu=4, memory=16384, volumes=VOLUMES,
+              secrets=HF_SECRET, timeout=3600)
+def build_eval_items(holdout_limit: int = 3615, lichess_per_band: int = 150,
+                     n_per_theme: int = 30, chessqa_per_config: int = 100,
+                     mate_n: int = 400, seed: int = 0) -> dict:
+    """Write the evaluation item set once, to a file.
+
+    Freezing it matters for the comparison: every system is then scored on byte-identical
+    items, guaranteed by construction rather than by hoping a sampling seed reproduces.
+    It also gives us the exact FEN list to compute engine tables for.
+    """
+    import json
+    import sys
+    from collections import Counter
+    sys.path.insert(0, "/root")
+    from chessr.benchmarks import load_all
+
+    items = load_all({
+        "holdout": "/data/test_positions.jsonl", "holdout_limit": holdout_limit,
+        "lichess": True, "lichess_args": {"n_per_band": lichess_per_band,
+                                          "n_per_theme": n_per_theme, "seed": seed},
+        "chessqa": True, "chessqa_args": {"n_per_config": chessqa_per_config,
+                                          "seed": seed},
+        "mate": bool(mate_n), "mate_args": {"n": mate_n, "seed": seed},
+    })
+    with open("/data/eval_items.jsonl", "w") as fh:
+        for it in items:
+            fh.write(json.dumps(it.to_json()) + "\n")
+    fens = sorted({i.fen for i in items if i.fen})
+    with open("/data/eval_fens.txt", "w") as fh:
+        fh.write("\n".join(fens))
+    data.commit()
+    _hub_push("/data/eval_items.jsonl", "final/eval_items.jsonl")
+    out = {"items": len(items), "unique_fens": len(fens),
+           "mix": dict(Counter(i.benchmark for i in items))}
+    print(json.dumps(out, indent=2), flush=True)
+    return out
+
+
+@app.function(image=CPU_IMAGE, cpu=4, volumes=VOLUMES, secrets=HF_SECRET,
+              timeout=6 * 3600, retries=2, max_containers=40)
+def eval_tables_shard(shard_id: int, n_shards: int, nodes: int = 400_000) -> int:
+    """Engine tables for the frozen evaluation positions.
+
+    External benchmarks bring positions our corpus never saw, so without this every
+    engine-grounded metric (win-probability loss, top-3, decision band) is undefined on
+    Lichess and ChessQA -- the smoke run resolved only 44 of 705 positions.
+    """
+    import json
+    import os
+    import sys
+    sys.path.insert(0, "/root")
+    from chessr.engine import EngineConfig, engine_session, move_table_with_pvs
+
+    out = f"/data/eval_tables/tables_{shard_id:04d}.jsonl"
+    os.makedirs("/data/eval_tables", exist_ok=True)
+    done = set()
+    if os.path.exists(out):
+        with open(out) as fh:
+            for line in fh:
+                try:
+                    done.add(json.loads(line)["fen"])
+                except Exception:
+                    pass
+    fens = [f for f in open("/data/eval_fens.txt").read().split("\n") if f.strip()]
+    mine = [f for f in fens[shard_id::n_shards] if f not in done]
+    if not mine:
+        return 0
+    cfg = EngineConfig(path="stockfish", nodes=nodes, threads=1, hash_mb=256)
+    n = 0
+    with engine_session(cfg) as eng, open(out, "a") as fh:
+        for fen in mine:
+            try:
+                tbl, pvs = move_table_with_pvs(eng, fen, cfg)
+            except Exception:
+                continue
+            if tbl:
+                fh.write(json.dumps({"fen": fen, "table": tbl, "pvs": pvs}) + "\n")
+                n += 1
+    data.commit()
+    _hub_push(out, f"eval_tables/tables_{shard_id:04d}.jsonl")
+    print(f"[eval-tables {shard_id}] {n}")
+    return n
+
+
+@app.local_entrypoint()
+def prepare_eval(n_shards: int = 40):
+    info = build_eval_items.remote()
+    print(info)
+    total = sum(eval_tables_shard.starmap([(i, n_shards) for i in range(n_shards)]))
+    print(f"engine tables for evaluation positions: {total}")
+
+
 # --------------------------------------------------------------------------- #
 # Stage 4 — evaluation (generate once, save everything)
 # --------------------------------------------------------------------------- #
 
 @app.function(image=GPU_IMAGE, gpu="L40S", volumes=VOLUMES, secrets=HF_SECRET,
-              timeout=8 * 3600, retries=1)
+              memory=32768, timeout=8 * 3600, retries=1)
 def evaluate(model: str, adapter: str | None = None, tag: str = "eval",
              n_samples: int = 8, holdout_limit: int = 3615,
              lichess_per_band: int = 250, chessqa_per_config: int = 200,
@@ -535,30 +635,46 @@ def evaluate(model: str, adapter: str | None = None, tag: str = "eval",
     import sys
     sys.path.insert(0, "/root")
 
-    from chessr.benchmarks import load_all
     from chessr.engine import TableStore
     from chessr.evalsuite import run_eval, run_id_for
 
-    store = TableStore()
     tdir = "/data/tables_pv" if os.path.isdir("/data/tables_pv") else "/data/tables"
-    for f in sorted(os.listdir(tdir)):
-        store.load(f"{tdir}/{f}")
-    print(f"{len(store):,} engine tables", flush=True)
 
-    items = load_all({
-        "holdout": "/data/test_positions.jsonl", "holdout_limit": holdout_limit,
-        "lichess": True, "lichess_args": {"n_per_band": lichess_per_band},
-        "chessqa": True, "chessqa_args": {"n_per_config": chessqa_per_config},
-        "mate": bool(mate_n), "mate_args": {"n": mate_n},
-    }, tables=store)
+    # Load the benchmark items first so we can restrict the table store to the positions
+    # they actually reference. Loading all ~150k tables next to a vLLM engine exhausts
+    # container memory and the process is killed without a Python traceback.
+    import json as _json
+    from chessr.benchmarks import Item
+    with open("/data/eval_items.jsonl") as fh:
+        items = [Item(**_json.loads(l)) for l in fh if l.strip()]
     from collections import Counter
     print("benchmark mix:", dict(Counter(i.benchmark for i in items)), flush=True)
+
+    wanted = {i.fen for i in items if i.fen}
+    store = TableStore().load_dir(tdir, keep=wanted)
+    if os.path.isdir("/data/eval_tables"):
+        store.load_dir("/data/eval_tables", keep=wanted)
+    print(f"{len(store):,} engine tables kept of {len(wanted):,} requested", flush=True)
+
+    # gold moves for the holdout split come from the engine tables
+    for it in items:
+        if it.benchmark == "holdout" and not it.gold_moves:
+            t = store.get(it.fen)
+            if t:
+                best = max(t.values())
+                it.gold_moves = [u for u, cp in t.items() if cp == best]
 
     rid = run_id_for(model, adapter, tag)
     out = f"/runs/eval/{rid}.jsonl"
     os.makedirs("/runs/eval", exist_ok=True)
-    run_eval(items, model, adapter, out, tables=store,
-             variants=tuple(variants.split(",")), n_samples=n_samples)
+    try:
+        run_eval(items, model, adapter, out, tables=store,
+                 variants=tuple(variants.split(",")), n_samples=n_samples)
+    except Exception:
+        import traceback
+        print("=== EVAL FAILED ===", flush=True)
+        traceback.print_exc()
+        raise
     runs.commit()
     _hub_push(out, f"eval/{rid}.jsonl")
     return out
@@ -581,6 +697,47 @@ def report(records_path: str) -> dict:
     _hub_push(out, f"eval/{os.path.basename(out)}")
     print(json.dumps(rep["overall"], indent=2, default=str)[:2500], flush=True)
     return rep
+
+
+
+@app.local_entrypoint()
+def eval_smoke(model: str = "Qwen/Qwen3-4B-Instruct-2507", adapter: str = ""):
+    """Exercise every benchmark loader and variant on a handful of items."""
+    print(evaluate.remote(model, adapter or None, "smoke", 2, 20, 5, 5, 10,
+                          "base,perturbed,no_reasoning"))
+
+
+@app.local_entrypoint()
+def eval_sweep(n_samples: int = 4, holdout_limit: int = 3615,
+               lichess_per_band: int = 150, chessqa_per_config: int = 100,
+               mate_n: int = 400):
+    """Every system on identical items, in parallel.
+
+    All arms share one base (/runs/sft_merged) and differ only by LoRA adapter, so the
+    comparison is matched by construction. n_samples=4 still supports the reranking
+    analysis at n in {1,2,4}; raw records make any larger n a re-run of metrics, not of
+    the model.
+    """
+    base = "Qwen/Qwen3-4B-Instruct-2507"
+    merged = "/runs/sft_merged"
+    systems = [
+        (base,   None,              "base_model"),
+        (merged, None,              "sft"),
+        (merged, "/runs/grpo_m6",   "m6_composite"),
+        (merged, "/runs/grpo_m3",   "m3_move_only"),
+        (merged, "/runs/grpo_m4",   "m4_sparse"),
+        (merged, "/runs/grpo_a3",   "a3_no_coverage"),
+    ]
+    args = [(m, a, t, n_samples, holdout_limit, lichess_per_band,
+             chessqa_per_config, mate_n, "base,perturbed,no_reasoning")
+            for m, a, t in systems]
+    paths = list(evaluate.starmap(args))
+    print("records written:")
+    for p in paths:
+        print("  ", p)
+    for p in paths:
+        report.spawn(p)
+    return paths
 
 
 @app.local_entrypoint()

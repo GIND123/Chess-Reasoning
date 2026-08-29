@@ -156,13 +156,25 @@ def build_tables(fens: Iterable[str], cfg: EngineConfig, out_path: str,
 class TableStore:
     """In-memory FEN -> move table. ~40k positions is a few hundred MB; fine for RL."""
 
+    def load_dir(self, directory: str, keep: set[str] | None = None) -> "TableStore":
+        """Load every shard in a directory, optionally keeping only the FENs needed.
+
+        `keep` matters: an evaluation touches a few thousand positions, and loading the
+        full corpus alongside an inference engine exhausts container memory.
+        """
+        import os
+        for f in sorted(os.listdir(directory)):
+            if f.endswith(".jsonl"):
+                self.load(os.path.join(directory, f), keep)
+        return self
+
     def __init__(self, path: str | None = None):
         self._d: dict[str, dict[str, int]] = {}
         self._pv: dict[str, dict[str, list[str]]] = {}
         if path:
             self.load(path)
 
-    def load(self, path: str) -> "TableStore":
+    def load(self, path: str, keep: set[str] | None = None) -> "TableStore":
         """Tolerant of a partially-written trailing line: shards are appended to while
         other stages read them, so a torn last record must not kill the reader."""
         with open(path) as fh:
@@ -173,6 +185,8 @@ class TableStore:
                 try:
                     rec = json.loads(line)
                 except json.JSONDecodeError:
+                    continue
+                if keep is not None and rec["fen"] not in keep:
                     continue
                 self._d[rec["fen"]] = rec["table"]
                 if rec.get("pvs"):

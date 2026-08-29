@@ -12,9 +12,27 @@ WP_SCALE = 400.0
 MATE_CP = 10_000  # centipawn value assigned to a forced mate before conversion
 
 
+def is_fen(fen: str) -> bool:
+    """Cheap structural check. Benchmarks carry rows whose position field is prose, a
+    task id, or empty, and those must be filtered rather than crash the harness."""
+    if not fen or not isinstance(fen, str):
+        return False
+    parts = fen.split()
+    if not parts or parts[0].count("/") != 7:
+        return False
+    try:
+        chess.Board(fen)
+        return True
+    except Exception:
+        return False
+
+
 def ascii_board(fen: str) -> str:
     """The 8x8 grid used in every prompt. Rank 8 at the top, matching the FEN order."""
-    placement = fen.split()[0]
+    parts = fen.split() if isinstance(fen, str) else []
+    if not parts:
+        raise ValueError(f"not a FEN: {fen!r}")
+    placement = parts[0]
     sep = "+---" * 8 + "+"
     rows = []
     for rank in placement.split("/"):
