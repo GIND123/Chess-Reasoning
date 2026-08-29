@@ -1,5 +1,5 @@
 # M4 - sparse outcome RLVR (DeepSeek-R1 style). Binary correct/incorrect.
-model: /runs/sft
+model: /runs/sft_merged
 out_dir: /runs/grpo_m4
 tables: /data/tables_pv
 train_jsonl: /data/rl_positions.jsonl

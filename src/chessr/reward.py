@@ -20,6 +20,22 @@ from chessr.boards import win_prob
 from chessr.claims import ClaimType, ClaimVerdict, verify_structured_trace
 from chessr.prompts import parse_trace
 
+def completion_text(c) -> str:
+    """TRL hands completions back in the dataset's own format.
+
+    A conversational dataset (ours: prompt is a list of role/content messages) yields
+    completions as lists of message dicts, not strings. Normalise here so every reward
+    function takes plain text and the format of the dataset never leaks into scoring.
+    """
+    if isinstance(c, str):
+        return c
+    if isinstance(c, dict):
+        return c.get("content", "") or ""
+    if isinstance(c, (list, tuple)):
+        return "".join(completion_text(x) for x in c)
+    return str(c)
+
+
 TOL_WP = 0.10            # win-probability loss that maps to zero move reward
 MIN_ROOT_CLAIMS = 2      # <read> must ground itself at least this much
 TARGET_CLAIMS = 6        # coverage saturates here
@@ -101,10 +117,11 @@ def r_format(trace) -> float:
     return min(1.0, score)
 
 
-def score_completion(fen: str, completion: str, table: dict[str, int] | None,
+def score_completion(fen: str, completion, table: dict[str, int] | None,
                      *, weights: tuple[float, float, float, float] = (1.0, 0.5, 0.3, 0.2),
                      use_penalties: bool = True) -> RewardBreakdown:
     """The full composite reward for one rollout."""
+    completion = completion_text(completion)
     trace = parse_trace(completion, fen)
     report = verify_structured_trace(fen, completion, table)
 
@@ -154,6 +171,7 @@ def make_reward_fns(store, *, sparse: bool = False, tol: float = TOL_WP):
         log = kwargs.get("log_metric")
         out, losses, legals = [], [], []
         for c, f in zip(completions, fen):
+            c = completion_text(c)
             tr = parse_trace(c, f)
             tbl = store.get(f)
             if sparse:
@@ -172,6 +190,7 @@ def make_reward_fns(store, *, sparse: bool = False, tol: float = TOL_WP):
         log = kwargs.get("log_metric")
         out, nfalse = [], []
         for c, f in zip(completions, fen):
+            c = completion_text(c)
             rep = verify_structured_trace(f, c, store.get(f))
             out.append(rep.precision); nfalse.append(rep.n_false)
         if log:
@@ -182,18 +201,19 @@ def make_reward_fns(store, *, sparse: bool = False, tol: float = TOL_WP):
         log = kwargs.get("log_metric")
         out = []
         for c, f in zip(completions, fen):
-            out.append(r_coverage(verify_structured_trace(f, c, store.get(f))))
+            out.append(r_coverage(verify_structured_trace(f, completion_text(c), store.get(f))))
         if log:
             log("coverage", sum(out) / max(len(out), 1))
         return out
 
     def format_reward(completions, **kwargs):
-        return [r_format(parse_trace(c)) for c in completions]
+        return [r_format(parse_trace(completion_text(c))) for c in completions]
 
     def penalty_reward(completions, fen, **kwargs):
         """Negative. Hard constraints are penalties, not weighted preferences."""
         out = []
         for c, f in zip(completions, fen):
+            c = completion_text(c)
             tr = parse_trace(c, f)
             rep = verify_structured_trace(f, c, store.get(f))
             p = 0.0

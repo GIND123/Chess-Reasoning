@@ -37,7 +37,8 @@ class GRPOSettings:
     grad_accum: int = 1
     lr: float = 1e-6
     max_completion_length: int = 400
-    max_prompt_length: int = 768
+    # TRL 1.12 dropped max_prompt_length; the vLLM window is sized here instead.
+    vllm_max_model_length: int = 2048
     temperature: float = 1.0
     loss_type: str = "dapo"
     beta: float = 0.0                        # 0.0 -> no reference model
@@ -113,7 +114,7 @@ def train(cfg: GRPOSettings):
         gradient_accumulation_steps=cfg.grad_accum,
         num_generations=cfg.num_generations,
         max_completion_length=cfg.max_completion_length,
-        max_prompt_length=cfg.max_prompt_length,
+        vllm_max_model_length=cfg.vllm_max_model_length,
         temperature=cfg.temperature,
         loss_type=cfg.loss_type,
         beta=cfg.beta,

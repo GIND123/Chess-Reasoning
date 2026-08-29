@@ -76,11 +76,16 @@ CPU_IMAGE = (
 # A CUDA *devel* base, not debian_slim: vLLM's FlashInfer path JIT-compiles kernels at
 # engine start and needs nvcc. Setting VLLM_ATTENTION_BACKEND alone does not avoid it.
 GPU_IMAGE = (
-    modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.11")
+    # Python 3.12, not 3.11: the FlashInfer build that vLLM 0.27.1 pulls annotates with
+    # `array.array[int]`, and array.array only became subscriptable in 3.12.
+    modal.Image.from_registry("nvidia/cuda:12.8.1-devel-ubuntu22.04", add_python="3.12")
     .apt_install("git", "curl", "tar")
     .run_commands(SF_INSTALL)
     .pip_install(
-        "vllm==0.28.0",          # pulls a matching torch itself; do not pin torch
+        # TRL declares vllm<=0.27.1; 0.28.0 removed a symbol its GRPO trainer
+        # imports (NCCLTrainerSendWeightsArgs), so "latest + latest" does not
+        # work here. Pin to the pair TRL actually supports.
+        "vllm==0.27.1",
         "trl==1.12.0",           # GRPOConfig(loss_type="dapo", vllm_mode="colocate")
         "peft>=0.17.0",
         "accelerate>=1.10.0",
@@ -471,6 +476,44 @@ def grpo(config_yaml: str) -> str:
     _push_dir(cfg.out_dir, f"checkpoints/{os.path.basename(cfg.out_dir)}")
     return cfg.out_dir
 
+
+
+
+@app.function(image=GPU_IMAGE, gpu="L40S", volumes=VOLUMES, secrets=HF_SECRET,
+              timeout=2 * 3600)
+def merge_adapter(base: str = "Qwen/Qwen3-4B-Instruct-2507",
+                  adapter: str = "/runs/sft", out_dir: str = "/runs/sft_merged") -> str:
+    """Fold the SFT LoRA into the base weights.
+
+    GRPO needs a model directory, not an adapter: every arm then starts from identical
+    merged weights and applies its own fresh LoRA, so the only difference between arms is
+    the reward. Keeping SFT as an adapter on top of the base would confound that.
+    """
+    import os
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if os.path.exists(os.path.join(out_dir, "config.json")):
+        print(f"[skip] {out_dir} exists")
+        return out_dir
+
+    tok = AutoTokenizer.from_pretrained(base)
+    model = AutoModelForCausalLM.from_pretrained(base, dtype=torch.bfloat16,
+                                                 device_map="cpu")
+    model = PeftModel.from_pretrained(model, adapter)
+    model = model.merge_and_unload()
+    os.makedirs(out_dir, exist_ok=True)
+    model.save_pretrained(out_dir, safe_serialization=True)
+    tok.save_pretrained(out_dir)
+    runs.commit()
+    print("merged ->", out_dir, os.listdir(out_dir))
+    return out_dir
+
+
+@app.local_entrypoint()
+def merge(base: str = "Qwen/Qwen3-4B-Instruct-2507", adapter: str = "/runs/sft"):
+    print(merge_adapter.remote(base, adapter))
 
 
 # --------------------------------------------------------------------------- #

@@ -1,7 +1,7 @@
 # A3 - the degenerate arm, run on purpose. Precision with no coverage term: the policy
 #      is expected to collapse toward asserting one trivially-true fact and stopping.
 #      Documented rather than assumed.
-model: /runs/sft
+model: /runs/sft_merged
 out_dir: /runs/grpo_a3
 tables: /data/tables_pv
 train_jsonl: /data/rl_positions.jsonl

@@ -141,3 +141,37 @@ def test_ascii_board_shape():
     b = ascii_board(START)
     assert b.count("\n") == 16
     assert b.splitlines()[1].startswith("| r |")
+
+
+class TestCompletionFormats:
+    """TRL returns completions in the dataset's own format. Ours is conversational, so
+    reward functions receive lists of message dicts -- this is what broke the first
+    GRPO launch after the environment was finally healthy."""
+
+    def test_plain_string(self):
+        from chessr.reward import completion_text
+        assert completion_text(GOOD) == GOOD
+
+    def test_conversational_list_of_messages(self):
+        from chessr.reward import completion_text
+        assert completion_text([{"role": "assistant", "content": GOOD}]) == GOOD
+
+    def test_single_message_dict(self):
+        from chessr.reward import completion_text
+        assert completion_text({"role": "assistant", "content": GOOD}) == GOOD
+
+    def test_reward_fns_accept_conversational(self):
+        from chessr.reward import make_reward_fns
+
+        class S:
+            def get(self, f): return TABLE
+
+        fns = make_reward_fns(S())
+        convo = [[{"role": "assistant", "content": GOOD}]]
+        for name, fn in fns.items():
+            out = fn(completions=convo, fen=[START])
+            assert len(out) == 1 and isinstance(out[0], float), name
+
+    def test_score_completion_accepts_conversational(self):
+        b = score_completion(START, [{"role": "assistant", "content": GOOD}], TABLE)
+        assert b.chosen == "e2e4" and b.legal

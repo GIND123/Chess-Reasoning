@@ -1,5 +1,5 @@
 # M6 - ours. Process-verified GRPO: graded move quality + claim grounding.
-model: /runs/sft
+model: /runs/sft_merged
 out_dir: /runs/grpo_m6
 tables: /data/tables_pv
 train_jsonl: /data/rl_positions.jsonl

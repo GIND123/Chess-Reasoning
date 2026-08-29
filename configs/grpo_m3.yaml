@@ -1,5 +1,5 @@
 # M3 - dense action-value RLVR (Wang et al. 2507.00726). Graded move reward only.
-model: /runs/sft
+model: /runs/sft_merged
 out_dir: /runs/grpo_m3
 tables: /data/tables_pv
 train_jsonl: /data/rl_positions.jsonl
