@@ -47,7 +47,7 @@ def evaluate(records, store, *, completion_key: str = "completion") -> Metrics:
         best_cp = max(table.values())
         best_moves = {u for u, cp in table.items() if cp == best_cp}
 
-        trace = parse_trace(r[completion_key])
+        trace = parse_trace(r[completion_key], fen)
         board = chess.Board(fen)
 
         legal = False

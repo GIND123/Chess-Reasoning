@@ -47,6 +47,44 @@ def engine_session(cfg: EngineConfig) -> Iterator[chess.engine.SimpleEngine]:
         eng.quit()
 
 
+def move_table_with_pvs(eng: chess.engine.SimpleEngine, fen: str, cfg: EngineConfig,
+                        pv_top_k: int = 8, pv_plies: int = 6
+                        ) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """Scores for every legal move, plus the principal variation for the top-k.
+
+    The MultiPV search already computes these lines; discarding them and then asking a
+    language model to invent continuations was the largest single source of false claims
+    (illegal replies) in the first generation run. Storing them makes the teacher's
+    continuations correct by construction.
+    """
+    board = chess.Board(fen)
+    n = board.legal_moves.count()
+    if n == 0:
+        return {}, {}
+    infos = eng.analyse(board, chess.engine.Limit(nodes=cfg.nodes), multipv=n)
+    if isinstance(infos, dict):
+        infos = [infos]
+    table: dict[str, int] = {}
+    pvs: dict[str, list[str]] = {}
+    ranked = []
+    for info in infos:
+        pv = info.get("pv")
+        if not pv:
+            continue
+        uci = pv[0].uci()
+        cp = score_to_cp(info["score"])
+        table[uci] = cp
+        ranked.append((cp, uci, [m.uci() for m in pv[:pv_plies]]))
+    ranked.sort(key=lambda t: -t[0])
+    for _, uci, line in ranked[:pv_top_k]:
+        pvs[uci] = line
+    if table:
+        floor = min(table.values())
+        for mv in board.legal_moves:
+            table.setdefault(mv.uci(), floor)
+    return table, pvs
+
+
 def move_table(eng: chess.engine.SimpleEngine, fen: str, cfg: EngineConfig) -> dict[str, int]:
     """UCI -> centipawns, from the mover's point of view, for every legal move.
 
@@ -120,16 +158,25 @@ class TableStore:
 
     def __init__(self, path: str | None = None):
         self._d: dict[str, dict[str, int]] = {}
+        self._pv: dict[str, dict[str, list[str]]] = {}
         if path:
             self.load(path)
 
     def load(self, path: str) -> "TableStore":
+        """Tolerant of a partially-written trailing line: shards are appended to while
+        other stages read them, so a torn last record must not kill the reader."""
         with open(path) as fh:
             for line in fh:
-                if not line.strip():
+                line = line.strip()
+                if not line:
                     continue
-                rec = json.loads(line)
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 self._d[rec["fen"]] = rec["table"]
+                if rec.get("pvs"):
+                    self._pv[rec["fen"]] = rec["pvs"]
         return self
 
     def __contains__(self, fen: str) -> bool:
@@ -140,6 +187,9 @@ class TableStore:
 
     def get(self, fen: str) -> dict[str, int] | None:
         return self._d.get(fen)
+
+    def pvs(self, fen: str) -> dict[str, list[str]]:
+        return self._pv.get(fen, {})
 
     def fens(self) -> list[str]:
         return list(self._d)

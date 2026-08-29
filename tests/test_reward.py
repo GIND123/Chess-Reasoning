@@ -80,9 +80,20 @@ class TestTraceRewards:
                 < score_completion(START, GOOD, TABLE).total)
 
     def test_illegal_choice_is_penalised(self):
+        """An illegal token normalises to no move at all; both are the same failure."""
         bad = GOOD.replace("<move>e2e4</move>", "<move>e2e5</move>")
         b = score_completion(START, bad, TABLE)
-        assert b.penalty >= 1.0 and not b.legal
+        assert b.penalty >= 1.0 and not b.legal and b.chosen is None
+
+    def test_san_and_bare_squares_are_accepted(self):
+        """Notation is not a claim about the board, so it is normalised, not punished."""
+        for token in ("Nf3", "g1f3", "g1xf3"):
+            t = parse_trace(GOOD.replace("<move>e2e4</move>", f"<move>{token}</move>"), START)
+            assert t.move == "g1f3", token
+
+    def test_unresolvable_token_is_dropped_not_faked(self):
+        t = parse_trace(GOOD.replace("<move>e2e4</move>", "<move>zz99</move>"), START)
+        assert t.move is None and t.move_raw == "zz99"
 
 
 class TestParsing:

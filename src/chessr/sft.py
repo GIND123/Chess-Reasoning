@@ -65,6 +65,7 @@ def train(records: list[dict], system: str, cfg: SFTSettings):
         gradient_checkpointing=cfg.gradient_checkpointing,
         packing=cfg.packing,
         logging_steps=20,
+        include_num_input_tokens_seen=True,
         save_strategy="epoch",
         seed=cfg.seed,
         report_to="none",

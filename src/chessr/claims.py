@@ -556,7 +556,7 @@ def verify_structured_trace(fen: str, text: str,
     """
     from chessr.prompts import parse_trace  # local import: prompts imports boards only
 
-    tr = parse_trace(text)
+    tr = parse_trace(text, fen)
     root_spans: list[tuple[int, int]] = []
     for c in tr.candidates:
         i = text.find(c.raw)
@@ -573,7 +573,9 @@ def verify_structured_trace(fen: str, text: str,
     for c in tr.candidates:
         if not c.line:
             continue
-        n_ok, why = verify_line(fen, [c.move] + c.line)
+        # The candidate head is the first ply; the continuation is the reply onward.
+        moves = c.line if c.line and c.line[0] == c.move else [c.move] + c.line
+        n_ok, why = verify_line(fen, moves)
         report.claims.append(Claim(
             ClaimType.MOVE_LEGAL, f"line {c.move}: {' '.join(c.line)}",
             ClaimVerdict.TRUE if not why else ClaimVerdict.FALSE, why, (0, 0)))

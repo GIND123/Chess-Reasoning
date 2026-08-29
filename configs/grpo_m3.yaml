@@ -1,16 +1,19 @@
 # M3 - dense action-value RLVR (Wang et al. 2507.00726). Graded move reward only.
-model: runs/sft
-out_dir: runs/grpo_m3
-tables: data/final/tables.jsonl
-train_jsonl: data/final/rl_positions.jsonl
+model: /runs/sft
+out_dir: /runs/grpo_m3
+tables: /data/tables_pv
+train_jsonl: /data/rl_positions.jsonl
 terms:   [move, format, penalty]
 weights: [1.0,  0.2,    1.0]
 sparse_move: false
 steps: 400
 num_generations: 8
-per_device_bs: 24
+per_device_bs: 8
+grad_accum: 2
 lr: 1.0e-6
 max_completion_length: 400
 loss_type: dapo
 beta: 0.0
 seed: 0
+gradient_checkpointing: true
+vllm_gpu_memory_utilization: 0.28

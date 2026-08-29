@@ -49,12 +49,15 @@ class GRPOSettings:
     # vLLM
     use_vllm: bool = True
     vllm_mode: str = "colocate"
-    vllm_gpu_memory_utilization: float = 0.3
+    vllm_gpu_memory_utilization: float = 0.28
 
     # LoRA
     lora_r: int = 32
     lora_alpha: int = 64
     seed: int = 0
+    # GRPO is tighter than SFT: vLLM colocate reserves part of the device and
+    # each step holds num_generations completions per prompt.
+    gradient_checkpointing: bool = True
 
 
 def build_dataset(path: str, system: str):
@@ -82,7 +85,14 @@ def train(cfg: GRPOSettings):
     from chessr.prompts import SYS_STUDENT
     from chessr.reward import make_reward_fns
 
-    store = TableStore(cfg.tables)
+    import os
+    store = TableStore()
+    if os.path.isdir(cfg.tables):
+        for f in sorted(os.listdir(cfg.tables)):
+            if f.endswith(".jsonl"):
+                store.load(os.path.join(cfg.tables, f))
+    elif os.path.exists(cfg.tables):
+        store.load(cfg.tables)
     if not len(store):
         raise SystemExit(f"no engine tables at {cfg.tables}; run scripts/01_engine_tables.py")
 
@@ -116,7 +126,7 @@ def train(cfg: GRPOSettings):
         vllm_gpu_memory_utilization=cfg.vllm_gpu_memory_utilization,
         reward_weights=weights,
         bf16=True,
-        gradient_checkpointing=True,
+        gradient_checkpointing=cfg.gradient_checkpointing,
         logging_steps=5,
         save_steps=100,
         seed=cfg.seed,

@@ -30,7 +30,7 @@ def trace_score(fen: str, completion: str, *, w_prec: float = 1.0, w_cov: float 
                 w_fmt: float = 0.25, penalty_false: float = 1.0) -> float:
     """Engine-free quality score for a single trace."""
     report = verify_structured_trace(fen, completion, engine_table=None)
-    trace = parse_trace(completion)
+    trace = parse_trace(completion, fen)
     n_false = sum(c.verdict is ClaimVerdict.FALSE for c in report.claims)
     return (w_prec * report.precision
             + w_cov * r_coverage(report)
@@ -46,7 +46,7 @@ def rerank(fen: str, completions: list[str], *, vote: bool = False,
     single best trace -- a verification-weighted variant of self-consistency.
     """
     scores = [trace_score(fen, c, **kw) for c in completions]
-    moves = [parse_trace(c).move for c in completions]
+    moves = [parse_trace(c, fen).move for c in completions]
 
     votes: Counter = Counter()
     for m, s in zip(moves, scores):

@@ -26,8 +26,16 @@ class GenConfig:
     model: str = "Qwen/Qwen3-14B-AWQ"
     quantization: str | None = "awq"
     dtype: str = "auto"
-    max_model_len: int = 1280        # the dominant throughput lever -- see module docstring
-    kv_cache_dtype: str = "fp8"
+    # The dominant throughput lever -- but it caps *prompt + output*, not output alone.
+    # Set at 1280 with the piece list and PV continuations in the prompt, vLLM silently
+    # truncated 249/300 completions at ~122 tokens because only ~130 remained. Size it as
+    # prompt + max_tokens with headroom, then check finish_reason.
+    max_model_len: int = 2048
+    # fp8 KV doubles concurrency and is the difference between 62 and 124 concurrent
+    # sequences on a 24 GB card. On a 48 GB device there is already ample KV memory
+    # (measured: 29.45 GiB free for KV with 14B-AWQ), so "auto" avoids the fp8 code
+    # paths that route through FlashInfer.
+    kv_cache_dtype: str = "auto"
     gpu_memory_utilization: float = 0.92
     enable_prefix_caching: bool = True
     tensor_parallel_size: int = 1
@@ -36,7 +44,7 @@ class GenConfig:
     n: int = 1
     temperature: float = 0.7
     top_p: float = 0.95
-    max_tokens: int = 400
+    max_tokens: int = 600
     seed: int = 0
 
 
@@ -71,10 +79,21 @@ def sampling_params(cfg: GenConfig, *, legal_moves: Sequence[str] | None = None)
     return SamplingParams(**kw)
 
 
-def chat_prompts(tokenizer, system: str, users: Sequence[str]) -> list[str]:
-    return [tokenizer.apply_chat_template(
-        [{"role": "system", "content": system}, {"role": "user", "content": u}],
-        tokenize=False, add_generation_prompt=True) for u in users]
+def chat_prompts(tokenizer, system: str, users: Sequence[str],
+                 enable_thinking: bool = False) -> list[str]:
+    """`enable_thinking=False` matters: Qwen3 is a hybrid reasoning model with thinking on
+    by default, and it will spend the whole token budget inside <think> without ever
+    emitting the structured trace. Measured: 100/100 completions truncated at the cap."""
+    kw = {}
+    try:
+        return [tokenizer.apply_chat_template(
+            [{"role": "system", "content": system}, {"role": "user", "content": u}],
+            tokenize=False, add_generation_prompt=True,
+            enable_thinking=enable_thinking) for u in users]
+    except TypeError:
+        return [tokenizer.apply_chat_template(
+            [{"role": "system", "content": system}, {"role": "user", "content": u}],
+            tokenize=False, add_generation_prompt=True) for u in users]
 
 
 def generate_shard(records: list[dict], cfg: GenConfig, system: str,
@@ -91,6 +110,10 @@ def generate_shard(records: list[dict], cfg: GenConfig, system: str,
     tok = AutoTokenizer.from_pretrained(cfg.model)
     llm = build_llm(cfg)
     prompts = chat_prompts(tok, system, [r["prompt"] for r in records])
+    lens = [len(tok(p).input_ids) for p in prompts[:64]]
+    print(f"[gen] prompt tokens: mean {sum(lens)/len(lens):.0f} max {max(lens)} | "
+          f"max_model_len {cfg.max_model_len} | budget for output "
+          f"{cfg.max_model_len - max(lens)}", flush=True)
     outs = llm.generate(prompts, sampling_params(cfg))
 
     tmp = out_path + ".tmp"

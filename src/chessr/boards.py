@@ -26,6 +26,25 @@ def ascii_board(fen: str) -> str:
     return "\n".join(out)
 
 
+def piece_list(fen: str) -> str:
+    """Explicit piece inventory. Derived from the FEN, so it adds no information the
+    prompt did not already carry -- but it removes the parsing step that every tested
+    model fails at (0.0% board-state accuracy in the published literature)."""
+    board = chess.Board(fen)
+    out = []
+    for colour, name in ((chess.WHITE, "White"), (chess.BLACK, "Black")):
+        parts = []
+        for pt in (chess.KING, chess.QUEEN, chess.ROOK, chess.BISHOP,
+                   chess.KNIGHT, chess.PAWN):
+            sqs = sorted(chess.square_name(s) for s in board.pieces(pt, colour))
+            if sqs:
+                parts.append(f"{chess.piece_name(pt)}s: {', '.join(sqs)}"
+                             if len(sqs) > 1 else
+                             f"{chess.piece_name(pt)}: {sqs[0]}")
+        out.append(f"{name} -- " + "; ".join(parts))
+    return "\n".join(out)
+
+
 def side_to_move(fen: str) -> str:
     return "White" if fen.split()[1] == "w" else "Black"
 

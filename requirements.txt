@@ -11,8 +11,8 @@ transformers>=4.57.0
 datasets>=3.2.0
 accelerate>=1.4.0
 peft>=0.15.0
-trl>=0.26.0
-vllm>=0.11.0
+trl==1.12.0
+vllm==0.28.0
 
 # eval / stats
 scipy>=1.13

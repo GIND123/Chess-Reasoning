@@ -1,10 +1,19 @@
 model: Qwen/Qwen3-4B-Instruct-2507
-out_dir: runs/sft
-epochs: 2.0
+out_dir: /runs/sft
+# One epoch over 54,915 verified traces. Measured at the original settings, two epochs
+# cost 6.9 H100-hours, almost all of it padding waste: traces average ~160 tokens and
+# prompts ~400, so a 1280-token window padded nearly half of every batch.
+epochs: 1.0
 lr: 1.0e-5
-per_device_bs: 4
-grad_accum: 8
-max_len: 1280
+# batch 16 with checkpointing off OOMed at 79.2/79.2 GiB; 8 halves activation memory
+per_device_bs: 8
+grad_accum: 4
+max_len: 896
 lora_r: 32
 lora_alpha: 64
+lora_dropout: 0.05
+bf16: true
+# A 4B LoRA fits an 80GB device comfortably; checkpointing cost ~30% for no benefit.
+gradient_checkpointing: false
+packing: false
 seed: 0

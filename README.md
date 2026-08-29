@@ -505,6 +505,86 @@ what keeps the comparison honest.
 
 ---
 
+### 5.4 Run log — what the first real execution changed
+
+Everything below was measured on Modal (app `Govind-LLM`), not reasoned about. Each entry
+changed the design, and several are reportable results in their own right.
+
+**Engine tables — done.** All **149,982** positions scored over every legal move, twice:
+once for scores alone, then re-run to also store principal variations. Throughput **55.6
+positions/s** across 60 four-core containers, ~45 min per pass. Verified: every table
+covers exactly the legal move set, and the example position reproduces the legacy best
+move. Stockfish is pinned to the released **SF 17.1** binary rather than an apt package,
+because the Debian package ships no binary on PATH and because the corpus has to be
+reproducible.
+
+**Storing the principal variations was not optional.** The MultiPV search already computes
+a full line for every move, and the first implementation discarded everything but the
+first ply. Asking the teacher to *invent* continuations instead produced illegal replies
+as the single largest class of false claims. Storing the top-8 PVs and copying them into
+the teacher context makes continuations correct by construction — a fix that costs one
+extra engine pass and no generation quality.
+
+**Three silent failure modes in generation, none visible from reading the code:**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| 100/100 completions truncated with no structured output | Qwen3 is a hybrid reasoning model with thinking **on** by default; the whole budget went inside `<think>` | `enable_thinking=False` in the chat template |
+| 249/300 truncated at ~122 tokens despite `max_tokens=700` | `max_model_len` caps **prompt + output**. At 1280, the piece list and PV continuations left only ~130 tokens | `max_model_len=2048`, and log the prompt-length/output-budget split every run |
+| Cascading phantom violations | Models write `Re3`, `g8xh7`, or a bare `d6` for a move; the parser passed these through as fake moves | `resolve_move()` normalises UCI/SAN/long-algebraic/bare-square against the board, and drops what will not resolve |
+
+The middle row is worth stating plainly in the paper: **the concurrency lever cuts both
+ways.** `max_model_len` is the single biggest throughput knob, and setting it tight
+silently truncates generation rather than erroring. Always log
+`max_model_len - max(prompt_len)`.
+
+**Board grounding: a deterministic piece list.** The first traces misread the position
+badly ("bishop on d4" for a pawn, "rooks on a1 and h1" for a1/f1) — the F5 failure,
+reproduced live. The prompt now carries an explicit piece inventory derived from the FEN.
+This leaks nothing (it is the same information the FEN already holds) but removes the
+parsing step every published model fails at.
+
+**Acceptance gate — PASSED at 36%,** against a 20% floor, with the teacher unchanged and
+every gate at its specified value (`tol_wp=0.10`, `min_precision=0.90`, zero false
+occupancy claims, zero illegal move references).
+
+| Measurement | Acceptance | What was true at the time |
+|---|---:|---|
+| First run | 4% | thinking mode on; no PVs; parser faking moves |
+| After PVs | 5% | still truncating at ~122 tokens |
+| **After `max_model_len` fix** | **36%** | 400/400 finish cleanly, mean 160 tokens |
+
+The lesson is worth stating in the paper: **the first two readings were confounded, and
+both looked like a teacher-quality problem.** 85% of those rejections were "no `<move>`" —
+traces cut off before they reached an answer — not chess errors. Had the gate been
+loosened on that evidence, the corpus would have been built from truncated traces and the
+error attributed to the model. Inspecting rejections individually, rather than trusting the
+aggregate, is what separated the two.
+
+Residual rejections at 36% are genuine and are exactly what the method targets: 54% claim
+precision below threshold, 52% a false occupancy claim, 9% an illegal move reference.
+
+**Throughput is measured, never inferred, and never from a cold start.** The first SFT
+configuration ran at 7.2 s/step — **6.9 H100-hours** for two epochs, almost all of it
+padding: traces average ~160 tokens and prompts ~400, so a 1280-token window padded close
+to half of every batch, and gradient checkpointing cost a further ~30% for no benefit at
+this size. Corrected to one epoch, an 896-token window, batch 8 and no checkpointing, the
+steady-state rate is **2.00 s/step — 0.95 h, a 7x reduction**.
+
+Two process notes worth keeping, because both cost real money the first time:
+
+* A rate computed from process start is contaminated by model load. The same run
+  projected 6.11 h measured from launch and 0.95 h measured between two logged steps.
+  Always difference two in-training checkpoints.
+* Turning gradient checkpointing off raises activation memory superlinearly in batch
+  size: batch 16 OOMed at 79.2 of 79.2 GiB, batch 8 fits with room. Halve, do not nudge.
+
+**Token efficiency, unprompted.** Accepted traces run **~140 tokens**, against 178 for the
+closest prior system and 12,193 for GPT-5 on the comparable task. The structured format
+produces this without a length penalty in the reward.
+
+---
+
 ## 6. Training
 
 ### 6.1 Stage 1 — supervised fine-tuning

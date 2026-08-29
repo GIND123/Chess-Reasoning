@@ -5,12 +5,17 @@ exactly the unverified content the filter exists to remove.
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass
 
 from chessr.boards import win_prob
 from chessr.claims import ClaimType, verify_structured_trace
 from chessr.prompts import parse_trace
+
+LEAK_RX = re.compile(
+    r"\b(engine|centipawn|evaluation|eval score|the score|suggests that the best|"
+    r"cp\(|mate\(|private analysis|as given|provided analysis)\b", re.I)
 
 
 @dataclass
@@ -36,12 +41,16 @@ class Decision:
 
 def judge(fen: str, completion: str, table: dict[str, int] | None,
           gates: Gates = Gates()) -> Decision:
-    trace = parse_trace(completion)
+    trace = parse_trace(completion, fen)
     report = verify_structured_trace(fen, completion, table)
     reasons: list[str] = []
 
     if not trace.move:
         reasons.append("no <move>")
+    if LEAK_RX.search(completion):
+        reasons.append("engine leak in trace")
+    if "<think>" in completion:
+        reasons.append("thinking block not disabled")
     if gates.require_three_candidates and len(trace.candidates) < 3:
         reasons.append(f"only {len(trace.candidates)} candidates")
 

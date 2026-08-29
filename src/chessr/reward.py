@@ -105,7 +105,7 @@ def score_completion(fen: str, completion: str, table: dict[str, int] | None,
                      *, weights: tuple[float, float, float, float] = (1.0, 0.5, 0.3, 0.2),
                      use_penalties: bool = True) -> RewardBreakdown:
     """The full composite reward for one rollout."""
-    trace = parse_trace(completion)
+    trace = parse_trace(completion, fen)
     report = verify_structured_trace(fen, completion, table)
 
     rm, wp_loss, legal = r_move(fen, trace.move, table)
@@ -120,7 +120,10 @@ def score_completion(fen: str, completion: str, table: dict[str, int] | None,
         n_scored=report.n_scored, n_false=report.n_false,
     )
     if use_penalties:
-        if trace.move and not legal:
+        # After normalisation an unresolvable token yields move=None, so "named an
+        # illegal move" and "named no move" are one failure mode. Both are penalised;
+        # `move_raw` keeps them apart in the logs.
+        if not legal:
             b.penalty += PENALTY_ILLEGAL
         if report.violations(ClaimType.OCCUPANCY):
             b.penalty += PENALTY_FALSE_CLAIM
@@ -151,7 +154,7 @@ def make_reward_fns(store, *, sparse: bool = False, tol: float = TOL_WP):
         log = kwargs.get("log_metric")
         out, losses, legals = [], [], []
         for c, f in zip(completions, fen):
-            tr = parse_trace(c)
+            tr = parse_trace(c, f)
             tbl = store.get(f)
             if sparse:
                 best = max(tbl, key=tbl.get) if tbl else None
@@ -191,18 +194,11 @@ def make_reward_fns(store, *, sparse: bool = False, tol: float = TOL_WP):
         """Negative. Hard constraints are penalties, not weighted preferences."""
         out = []
         for c, f in zip(completions, fen):
-            tr = parse_trace(c)
+            tr = parse_trace(c, f)
             rep = verify_structured_trace(f, c, store.get(f))
             p = 0.0
-            if tr.move:
-                b = chess.Board(f)
-                try:
-                    if chess.Move.from_uci(tr.move) not in b.legal_moves:
-                        p += PENALTY_ILLEGAL
-                except ValueError:
-                    p += PENALTY_ILLEGAL
-            else:
-                p += PENALTY_ILLEGAL
+            if not tr.move:
+                p += PENALTY_ILLEGAL      # no move, or one that resolves to nothing legal
             if rep.violations(ClaimType.OCCUPANCY):
                 p += PENALTY_FALSE_CLAIM
             out.append(-p)
