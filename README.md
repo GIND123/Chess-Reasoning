@@ -127,6 +127,26 @@ moves from 24.7% to **14.0%**. The comparison that matters is the third row: a d
 reward alone buys 1.4 pp, while adding claim verification buys 6.8 pp, so the effect is
 attributable to grounding rather than to reinforcement learning in general.
 
+### Replication across seeds
+
+The grounding result reproduces independently. Two GRPO runs from the same SFT
+initialisation, differing only in random seed, evaluated on the same 5,256 items:
+
+| | Claim precision | False claims | Top-1 | Illegal |
+|---|---:|---:|---:|---:|
+| SFT initialisation | 0.7838 | 2.63 | 0.1043 | 0.2466 |
+| M6-v2, seed 0 | 0.8502 | 1.92 | 0.1017 | 0.1395 |
+| M6-v2, seed 1 | 0.8490 | 1.91 | 0.1022 | 0.1416 |
+
+| Comparison | Δ claim precision | p |
+|---|---:|---:|
+| seed 0 − SFT | +6.75 pp | < 0.001 |
+| seed 1 − SFT | +6.71 pp | < 0.001 |
+| **seed 0 − seed 1** | **−0.01 pp** | **0.94** |
+
+The two runs agree to within 0.04 pp and the seed-to-seed difference is indistinguishable
+from zero, so the improvement is a property of the reward rather than of a particular run.
+
 ### Ablation: reward density
 
 Move reward can be clipped at a win-probability tolerance (`1 − wp_loss/TOL`) or left
@@ -186,6 +206,24 @@ forcing legality overrides moves the model would otherwise have played correctly
 24.7% → 14.0% reduction reported above therefore reflects a change in what the model
 proposes, not a decoding restriction.
 
+### External benchmark: ChessQA
+
+Graded offline from saved answers, deterministically: set F1 for multi-answer tasks
+(legal moves, controlled squares, motifs), exact match for single-answer tasks.
+
+| System | Structural | Motifs | Short tactics | Position judgement | Semantic |
+|---|---:|---:|---:|---:|---:|
+| Base | 0.043 | 0.000 | 0.000 | 0.000 | 0.250 |
+| SFT | 0.079 | 0.000 | 0.000 | 0.230 | 0.260 |
+| M6-v2 | 0.083 | 0.002 | 0.000 | 0.160 | 0.280 |
+
+Structural grounding improves with training (0.043 → 0.083) and position judgement is
+learned from scratch by supervised fine-tuning (0.000 → 0.230), but tactical tasks remain
+unsolved: across 100 short-tactics items the reference move appears nowhere in the model's
+answer, despite 97 of 100 answers being well-formed UCI. Semantic multiple choice sits at
+chance (0.25). These tasks require search depth this model does not have, and the result is
+consistent with the playing-strength measurement below.
+
 ### Playing strength and the distribution gap
 
 Position-level accuracy does not transfer to play. Measured over 120 games against
@@ -215,6 +253,30 @@ the same 400,000-node limit as the tactical set.
 
 The two corpora differ only in position distribution — same teacher, same prompts, same
 acceptance gates, same engine settings — which isolates distribution as the variable.
+Acceptance under the verifier is essentially unchanged (37.4% phase-balanced vs 36.6%
+tactical), so the gates transfer to a distribution where 65% of decisions are near-ties.
+
+Training a matched model on the mixed corpus (61,901 traces, 11% phase-balanced) and
+replaying 120 games under identical conditions:
+
+| | Tactical only | + phase-balanced | Δ |
+|---|---:|---:|---:|
+| Illegal-move fallback rate | 0.486 | **0.366** | **−24.7%** |
+| Resample rate | 0.748 | **0.613** | −18.1% |
+| Tokens per move | 78 | **98** | +26% |
+| Elo vs Stockfish (2,000 nodes) | −830 | −951 | overlapping CIs |
+| Mean centipawn loss | 818 | 848 | — |
+
+Distribution matching addresses the failure it predicts and no more. The illegal-move rate
+falls by a quarter and degenerate short output disappears, from an 11% change in training
+data. Playing strength does not move: both models lose essentially every game, and the Elo
+difference rests on a single drawn game inside overlapping intervals.
+
+This separates two problems that position-level corpora conflate. Producing *legal, well-
+formed* play is a distribution property and responds to distribution correction. Producing
+*strong* play is a data-scale property: ChessLLM reaches Elo 1788 with 20B tokens of game
+data and Chess-GPT ~1300 Elo from 5M complete games, both orders of magnitude beyond what a
+tactical-position corpus provides.
 
 ### By decision difficulty
 

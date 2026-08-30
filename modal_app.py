@@ -415,7 +415,8 @@ def generate_shard(shard_id: int, n_shards: int, model: str, n: int = 1,
 @app.function(image=CPU_IMAGE, cpu=8, memory=32768, volumes=VOLUMES,
               secrets=HF_SECRET, timeout=4 * 3600)
 def filter_all(tol_wp: float = 0.10, min_precision: float = 0.90,
-               graded: bool = False, out_name: str = "sft.jsonl") -> dict:
+               graded: bool = False, out_name: str = "sft.jsonl",
+               tables_dir: str = "", shard_prefix: str = "") -> dict:
     """Apply the acceptance gates across every generation shard.
 
     Gates are the method, not a tuning knob: if acceptance is low the teacher changes,
@@ -433,10 +434,11 @@ def filter_all(tol_wp: float = 0.10, min_precision: float = 0.90,
     from chessr.prompts import student_prompt
 
     store = TableStore()
-    tdir = "/data/tables_pv" if os.path.isdir("/data/tables_pv") else "/data/tables"
+    tdir = tables_dir or ("/data/tables_pv" if os.path.isdir("/data/tables_pv")
+                          else "/data/tables")
     for f in sorted(os.listdir(tdir)):
         store.load(f"{tdir}/{f}")
-    print(f"{len(store):,} engine tables", flush=True)
+    print(f"{len(store):,} engine tables from {tdir}", flush=True)
 
     gates = Gates(tol_wp=tol_wp, min_precision=min_precision, graded=graded)
     stats = collections.Counter()
@@ -445,6 +447,10 @@ def filter_all(tol_wp: float = 0.10, min_precision: float = 0.90,
 
     for fname in sorted(os.listdir("/shards")):
         if not fname.endswith(".jsonl"):
+            continue
+        if shard_prefix and not fname.startswith(shard_prefix):
+            continue
+        if not shard_prefix and fname.startswith("selfplay"):
             continue
         with open(f"/shards/{fname}") as fh:
             for line in fh:
@@ -489,6 +495,16 @@ def filter_all(tol_wp: float = 0.10, min_precision: float = 0.90,
                            if k not in ("total", "accepted")}}
     print(json.dumps(summary, indent=2), flush=True)
     return summary
+
+
+@app.local_entrypoint()
+def filter_selfplay(tol_wp: float = 0.10, min_precision: float = 0.90):
+    """Same gates as the tactical corpus, so acceptance is directly comparable."""
+    s = filter_all.remote(tol_wp, min_precision, False, "sft_selfplay.jsonl",
+                          "/data/selfplay_tables", "selfplay")
+    print(f"\nACCEPTED {s['accepted']:,}/{s['total']:,} = {s['acceptance']:.1%}")
+    print(f"unique positions: {s['unique_positions']:,}")
+    print("reasons:", s["reasons"])
 
 
 @app.local_entrypoint()
@@ -572,8 +588,13 @@ def run_sft(config: str = "configs/sft.yaml", data: str = "/data/sft.jsonl"):
 
 @app.local_entrypoint()
 def run_grpo(config: str = "configs/grpo_m6.yaml", seed: int = 0):
+    """A non-zero seed also redirects out_dir; otherwise a replication run overwrites the
+    checkpoint it is meant to be compared against."""
     y = open(config).read()
     if seed:
+        import re as _re
+        y = _re.sub(r"^out_dir: (.+)$", lambda m: f"out_dir: {m.group(1)}_s{seed}",
+                    y, count=1, flags=_re.M)
         y += f"\nseed: {seed}\n"
     print(grpo.remote(y))
 
@@ -660,9 +681,53 @@ def merge_adapter(base: str = "Qwen/Qwen3-4B-Instruct-2507",
 
 
 @app.local_entrypoint()
-def merge(base: str = "Qwen/Qwen3-4B-Instruct-2507", adapter: str = "/runs/sft"):
-    print(merge_adapter.remote(base, adapter))
+def merge(base: str = "Qwen/Qwen3-4B-Instruct-2507", adapter: str = "/runs/sft",
+          out_dir: str = "/runs/sft_merged"):
+    print(merge_adapter.remote(base, adapter, out_dir))
 
+
+
+
+@app.function(image=CPU_IMAGE, cpu=2, memory=8192, volumes=VOLUMES, secrets=HF_SECRET,
+              timeout=1800)
+def build_mixed_sft(out_name: str = "sft_mixed.jsonl") -> dict:
+    """Concatenate the tactical and phase-balanced verified corpora.
+
+    Both passed identical acceptance gates (36.6% and 37.4%), so the mixture changes the
+    position distribution the policy is trained on and nothing else.
+    """
+    import json
+    from collections import Counter
+    rows, seen, src = [], set(), Counter()
+    for path, tag in (("/data/sft.jsonl", "tactical"),
+                      ("/data/sft_selfplay.jsonl", "phase_balanced")):
+        with open(path) as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                if r["fen"] in seen:
+                    continue
+                seen.add(r["fen"])
+                r["source"] = tag
+                rows.append(r); src[tag] += 1
+    with open(f"/data/{out_name}", "w") as fh:
+        for r in rows:
+            fh.write(json.dumps(r) + "\n")
+    data.commit()
+    _hub_push(f"/data/{out_name}", f"final/{out_name}")
+    out = {"total": len(rows), "by_source": dict(src)}
+    print(json.dumps(out, indent=2), flush=True)
+    return out
+
+
+@app.local_entrypoint()
+def mix_and_train():
+    info = build_mixed_sft.remote()
+    print(info)
+    cfg = open("configs/sft.yaml").read().replace("out_dir: /runs/sft",
+                                                  "out_dir: /runs/sft_mixed")
+    print(sft.remote(cfg, "/data/sft_mixed.jsonl"))
 
 
 # --------------------------------------------------------------------------- #
@@ -894,6 +959,12 @@ def eval_constrained(adapter: str = "/runs/grpo_m6v2", tag: str = "m6v2_constrai
 
 
 @app.local_entrypoint()
+def eval_one(adapter: str = "/runs/grpo_m6v2", tag: str = "m6v2_s1", n_samples: int = 4):
+    print(evaluate.remote("/runs/sft_merged", adapter or None, tag, n_samples,
+                          3615, 150, 100, 400, "base"))
+
+
+@app.local_entrypoint()
 def eval_v2(n_samples: int = 4):
     """Evaluate the dense-reward arms on the same frozen item set as v1."""
     merged = "/runs/sft_merged"
@@ -1001,6 +1072,19 @@ def play_matches(model: str, adapter: str | None, tag: str,
     _hub_push(f"/runs/play/{tag}_summary.json", f"play/{tag}_summary.json")
     print(json.dumps(summary, indent=2), flush=True)
     return summary
+
+
+@app.local_entrypoint()
+def play_distribution(games: int = 120, skill: int = 0, nodes: int = 2000):
+    """The controlled comparison: identical model and method, one variable -- whether the
+    training corpus contains phase-balanced positions or only tactical ones."""
+    systems = [("/runs/sft_merged", None, "sft_tactical"),
+               ("/runs/sft_mixed_merged", None, "sft_mixed")]
+    for r in play_matches.starmap([(m, a, t, games, skill, nodes) for m, a, t in systems]):
+        print(f"{r['tag']:<14} score={r['score']:.4f} W/D/L={r['wins']}/{r['draws']}/{r['losses']} "
+              f"elo={r['elo_diff']:+.0f} [{r['elo_lo']:+.0f},{r['elo_hi']:+.0f}] "
+              f"cp_loss={r['mean_cp_loss']:.0f} blunders/100={r['blunders_per_100']:.1f} "
+              f"illegal_fallback={r['illegal_fallback_rate']:.3f}")
 
 
 @app.local_entrypoint()
