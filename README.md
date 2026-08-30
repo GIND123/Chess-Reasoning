@@ -186,6 +186,36 @@ forcing legality overrides moves the model would otherwise have played correctly
 24.7% → 14.0% reduction reported above therefore reflects a change in what the model
 proposes, not a decoding restriction.
 
+### Playing strength and the distribution gap
+
+Position-level accuracy does not transfer to play. Measured over 120 games against
+Stockfish at a 2,000-node budget, the model's illegal-move rate rises from **14.0% on
+held-out positions to 42.6% in game play**, and output collapses from 185 to 79 tokens per
+move.
+
+The cause is the source corpus, not the method. The tactical corpus these models are
+trained on is **99.2% positions where the side to move is already winning**, with a median
+evaluation of +438 cp and 86.3% of decisions carrying a gap above 300 cp. A policy trained
+there meets openings and balanced endgames for the first time during a game. ChessLLM
+(NAACL 2025) reports a **350 Elo** gap between short-round and long-round supervision for
+the same reason, and Chess-GPT (COLM 2024) reaches ~1300 Elo from a 50M-parameter model
+trained on complete game transcripts — both point at data distribution rather than scale.
+
+To measure this directly we build a **phase-balanced corpus** from engine self-play:
+complete games at skill levels 0–20, positions sampled uniformly across plies, scored at
+the same 400,000-node limit as the tactical set.
+
+| | Phase-balanced | Tactical (MATE) |
+|---|---:|---:|
+| Near-tie decisions (<30 cp) | **65.0%** | 0.5% |
+| Tactical decisions (>300 cp) | 4.2% | 86.3% |
+| Side to move already winning | **49.9%** | 99.2% |
+| Median evaluation of the best move | **+0 cp** | +438 cp |
+| Opening / middlegame / endgame | 33% / 42% / 25% | 6% / 70% / 24% |
+
+The two corpora differ only in position distribution — same teacher, same prompts, same
+acceptance gates, same engine settings — which isolates distribution as the variable.
+
 ### By decision difficulty
 
 ![Results by band](figures/fig8_by_band.png)
@@ -204,6 +234,8 @@ is reported per band.
 ### Limitations
 
 - Absolute move quality remains weak: top-1 near 0.10, win-probability loss near 0.70.
+- Playing strength is not competitive. Reaching it requires training on complete games at a
+  scale beyond this study; ChessLLM uses 20B tokens of game data to reach Elo 1788.
 - Reinforcement learning improves grounding but not move selection at this scale.
 - ChessQA is close to unusable for a model of this size — claim precision runs 13–40% by category.
 - The RL position mix is 418 near-tie and 813 moderate against 15,000 tactical, which is

@@ -132,6 +132,90 @@ def _push_dir(local_dir: str, remote_prefix: str) -> bool:
         return False
 
 
+
+# --------------------------------------------------------------------------- #
+# Stage 0b — phase-balanced positions from engine self-play
+# --------------------------------------------------------------------------- #
+
+@app.function(image=CPU_IMAGE, cpu=4, memory=8192, volumes=VOLUMES, secrets=HF_SECRET,
+              timeout=6 * 3600, retries=2, max_containers=40)
+def selfplay_shard(shard_id: int, games: int = 60, nodes: int = 40_000,
+                   per_game: int = 8, seed: int = 0) -> int:
+    """Sample positions from complete engine games, across every phase.
+
+    The tactical corpus this project started from contains only sharp middlegame
+    positions, so a policy trained on it meets openings and endgames for the first time
+    during play. ChessLLM (NAACL 2025) reports 350 Elo between short-round and long-round
+    supervision for exactly this reason. Self-play games give the full ply distribution at
+    CPU cost.
+
+    Skill levels are varied so the position distribution is not that of one strength.
+    """
+    import json
+    import os
+    import random
+    import sys
+    sys.path.insert(0, "/root")
+    import chess
+    import chess.engine
+
+    out = f"/data/selfplay/positions_{shard_id:04d}.jsonl"
+    os.makedirs("/data/selfplay", exist_ok=True)
+    if os.path.exists(out):
+        return 0
+
+    rng = random.Random(seed * 1000 + shard_id)
+    written = 0
+    with open(out, "w") as fh:
+        eng = chess.engine.SimpleEngine.popen_uci("stockfish")
+        try:
+            for g in range(games):
+                skill = rng.choice([0, 1, 3, 5, 8, 12, 20])
+                eng.configure({"Threads": 1, "Hash": 64, "Skill Level": skill})
+                board = chess.Board()
+                # a few random opening plies so games are not all identical
+                for _ in range(rng.randint(0, 6)):
+                    if board.is_game_over():
+                        break
+                    board.push(rng.choice(list(board.legal_moves)))
+                fens = []
+                while not board.is_game_over(claim_draw=True) and len(fens) < 200:
+                    fens.append(board.fen())
+                    try:
+                        res = eng.play(board, chess.engine.Limit(nodes=nodes))
+                    except chess.engine.EngineError:
+                        break
+                    if res.move is None:
+                        break
+                    board.push(res.move)
+                if len(fens) < 8:
+                    continue
+                # uniform across the game so openings, middlegames and endgames all appear
+                idx = sorted(rng.sample(range(len(fens)), min(per_game, len(fens))))
+                for i in idx:
+                    b = chess.Board(fens[i])
+                    n = len(b.piece_map())
+                    phase = ("opening" if n >= 28 else
+                             "middlegame" if n >= 15 else "endgame")
+                    fh.write(json.dumps({"fen": fens[i], "ply": i,
+                                         "game_len": len(fens), "phase": phase,
+                                         "skill": skill}) + "\n")
+                    written += 1
+        finally:
+            eng.quit()
+    data.commit()
+    _hub_push(out, f"selfplay/positions_{shard_id:04d}.jsonl")
+    print(f"[selfplay {shard_id}] {written} positions")
+    return written
+
+
+@app.local_entrypoint()
+def selfplay(shards: int = 40, games: int = 60, per_game: int = 8):
+    total = sum(selfplay_shard.starmap(
+        [(i, games, 40_000, per_game) for i in range(shards)]))
+    print(f"phase-balanced positions: {total}")
+
+
 # --------------------------------------------------------------------------- #
 # Stage 1 — engine tables (CPU)
 # --------------------------------------------------------------------------- #
@@ -190,6 +274,66 @@ def engine_shard(shard_id: int, n_shards: int, nodes: int = 400_000,
     return n
 
 
+
+@app.function(image=CPU_IMAGE, cpu=4, memory=8192, volumes=VOLUMES, secrets=HF_SECRET,
+              timeout=6 * 3600, retries=2, max_containers=50)
+def selfplay_tables_shard(shard_id: int, n_shards: int, nodes: int = 400_000) -> int:
+    """Engine tables for the phase-balanced positions, same node limit as the tactical set
+    so the two corpora are directly comparable."""
+    import json
+    import os
+    import sys
+    sys.path.insert(0, "/root")
+    from chessr.engine import EngineConfig, engine_session, move_table_with_pvs
+
+    out = f"/data/selfplay_tables/tables_{shard_id:04d}.jsonl"
+    os.makedirs("/data/selfplay_tables", exist_ok=True)
+    done = set()
+    if os.path.exists(out):
+        with open(out) as fh:
+            for line in fh:
+                try:
+                    done.add(json.loads(line)["fen"])
+                except Exception:
+                    pass
+
+    fens, seen = [], set()
+    for f in sorted(os.listdir("/data/selfplay")):
+        with open(f"/data/selfplay/{f}") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                fen = json.loads(line)["fen"]
+                if fen not in seen:
+                    seen.add(fen)
+                    fens.append(fen)
+    mine = [f for f in fens[shard_id::n_shards] if f not in done]
+    if not mine:
+        return 0
+
+    cfg = EngineConfig(path="stockfish", nodes=nodes, threads=1, hash_mb=256)
+    n = 0
+    with engine_session(cfg) as eng, open(out, "a") as fh:
+        for fen in mine:
+            try:
+                tbl, pvs = move_table_with_pvs(eng, fen, cfg)
+            except Exception:
+                continue
+            if tbl and len(tbl) > 1:
+                fh.write(json.dumps({"fen": fen, "table": tbl, "pvs": pvs}) + "\n")
+                n += 1
+    data.commit()
+    _hub_push(out, f"selfplay_tables/tables_{shard_id:04d}.jsonl")
+    print(f"[sp-tables {shard_id}] {n}")
+    return n
+
+
+@app.local_entrypoint()
+def selfplay_tables(n_shards: int = 50):
+    print("tables:", sum(selfplay_tables_shard.starmap(
+        [(i, n_shards) for i in range(n_shards)])))
+
+
 # --------------------------------------------------------------------------- #
 # Stage 2 — teacher generation (GPU)
 # --------------------------------------------------------------------------- #
@@ -198,7 +342,8 @@ def engine_shard(shard_id: int, n_shards: int, nodes: int = 400_000,
               timeout=6 * 3600, retries=2, max_containers=10)
 def generate_shard(shard_id: int, n_shards: int, model: str, n: int = 1,
                    temperature: float = 0.7, limit: int | None = None,
-                   max_tokens: int = 700) -> int:
+                   max_tokens: int = 700, tables_dir: str = "",
+                   out_prefix: str = "") -> int:
     """Teacher traces for one shard. The teacher sees the engine table; the stored
     prompt is the student prompt, which contains neither the answer nor engine data."""
     import json
@@ -210,7 +355,7 @@ def generate_shard(shard_id: int, n_shards: int, model: str, n: int = 1,
     from chessr.generate import GenConfig, build_llm, chat_prompts, sampling_params
     from chessr.prompts import SYS_TEACHER, student_prompt, teacher_prompt
 
-    tag = model.split("/")[-1].replace(".", "_")
+    tag = (out_prefix or model.split("/")[-1].replace(".", "_"))
     out = f"/shards/{tag}_n{n}_{shard_id:04d}.jsonl"
     os.makedirs("/shards", exist_ok=True)
     if os.path.exists(out):
@@ -218,10 +363,11 @@ def generate_shard(shard_id: int, n_shards: int, model: str, n: int = 1,
         return 0
 
     store = TableStore()
-    tdir = "/data/tables_pv" if os.path.isdir("/data/tables_pv") else "/data/tables"
+    tdir = tables_dir or ("/data/tables_pv" if os.path.isdir("/data/tables_pv")
+                          else "/data/tables")
     for f in sorted(os.listdir(tdir)):
         store.load(f"{tdir}/{f}")
-    print(f"[shard {shard_id}] {len(store)} engine tables loaded")
+    print(f"[shard {shard_id}] {len(store)} engine tables loaded from {tdir}")
 
     fens = [f for f in store.fens() if f.strip()]
     if limit:
@@ -826,7 +972,7 @@ def play_matches(model: str, adapter: str | None, tag: str,
     from vllm import LLM
     from vllm.lora.request import LoRARequest
 
-    from chessr.play import GameLog, dump_logs, play_game, summarise
+    from chessr.play import dump_logs, play_matches_batched, summarise
 
     tok = AutoTokenizer.from_pretrained(model)
     llm = LLM(model=model, dtype="bfloat16", max_model_len=2048,
@@ -838,12 +984,8 @@ def play_matches(model: str, adapter: str | None, tag: str,
     eng.configure({"Threads": 1, "Hash": 64, "Skill Level": skill})
     limit = chess.engine.Limit(nodes=nodes)
 
-    logs = []
-    for g in range(games):
-        logs.append(play_game(llm, tok, eng, limit, g, model_is_white=(g % 2 == 0),
-                              lora=lora, max_plies=max_plies))
-        if (g + 1) % 20 == 0:
-            print(f"  {g + 1}/{games} games", flush=True)
+    logs = play_matches_batched(llm, tok, eng, limit, games, lora=lora,
+                                max_plies=max_plies)
     eng.quit()
 
     os.makedirs("/runs/play", exist_ok=True)
@@ -892,6 +1034,16 @@ def engine_tables(n_shards: int = 50, nodes: int = 400_000, limit: int = 0):
     total = sum(engine_shard.starmap(
         [(i, n_shards, nodes, limit or None) for i in range(n_shards)]))
     print(f"engine tables: {total} positions scored")
+
+
+@app.local_entrypoint()
+def generate_selfplay(n_shards: int = 8, model: str = "Qwen/Qwen3-14B-AWQ",
+                      n: int = 1, temperature: float = 0.7):
+    """Traces for the phase-balanced positions, same teacher and gates as the tactical set."""
+    total = sum(generate_shard.starmap(
+        [(i, n_shards, model, n, temperature, None, 700,
+          "/data/selfplay_tables", "selfplay") for i in range(n_shards)]))
+    print(f"generated {total} completions on phase-balanced positions")
 
 
 @app.local_entrypoint()

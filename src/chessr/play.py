@@ -175,3 +175,112 @@ def dump_logs(logs: list[GameLog], path: str) -> str:
         for g in logs:
             fh.write(json.dumps(asdict(g)) + "\n")
     return path
+
+
+# --------------------------------------------------------------------------- #
+# Batched play
+# --------------------------------------------------------------------------- #
+
+def play_matches_batched(llm, tok, engine, board_limit, n_games: int,
+                         *, lora=None, max_plies: int = 120,
+                         max_tokens: int = 400, eval_nodes: int = 200_000,
+                         retries: int = 2) -> list[GameLog]:
+    """Play `n_games` concurrently, batching every model turn into one vLLM call.
+
+    Playing games one move at a time wastes almost all of the device: a single decode is
+    ~1.4 s regardless of batch size, so stepping 120 games in lockstep turns hours of
+    sequential decoding into minutes. Games are independent, so nothing about the result
+    changes -- only the scheduling.
+    """
+    from vllm import SamplingParams
+
+    boards = [chess.Board() for _ in range(n_games)]
+    logs = [GameLog(game_id=i, model_is_white=(i % 2 == 0), opponent=str(board_limit))
+            for i in range(n_games)]
+    rngs = [random.Random(i) for i in range(n_games)]
+    done = [False] * n_games
+
+    for _ply in range(max_plies):
+        # finish any game that has ended
+        for i, b in enumerate(boards):
+            if not done[i] and (b.is_game_over(claim_draw=True)
+                                or len(logs[i].plies) >= max_plies):
+                done[i] = True
+        if all(done):
+            break
+
+        # engine moves first, for every game where it is the engine's turn
+        for i, b in enumerate(boards):
+            if done[i]:
+                continue
+            if ((b.turn == chess.WHITE) == logs[i].model_is_white):
+                continue
+            info = engine.analyse(b, chess.engine.Limit(nodes=eval_nodes))
+            cp = info["score"].relative.score(mate_score=10000)
+            fen = b.fen()
+            res = engine.play(b, board_limit)
+            b.push(res.move)
+            logs[i].plies.append(MoveLog(ply=len(logs[i].plies), fen=fen, by="engine",
+                                         move=res.move.uci(), legal=True, cp_before=cp))
+
+        # every game now waiting on the model, batched into one call
+        idx = [i for i, b in enumerate(boards)
+               if not done[i] and not b.is_game_over(claim_draw=True)
+               and ((b.turn == chess.WHITE) == logs[i].model_is_white)]
+        if not idx:
+            continue
+
+        pre = {}
+        for i in idx:
+            info = engine.analyse(boards[i], chess.engine.Limit(nodes=eval_nodes))
+            pre[i] = info["score"].relative.score(mate_score=10000)
+
+        pending = list(idx)
+        chosen: dict[int, tuple[str, str, int, int]] = {}
+        for attempt in range(retries + 1):
+            if not pending:
+                break
+            prompts = [tok.apply_chat_template(
+                [{"role": "system", "content": SYS_STUDENT},
+                 {"role": "user", "content": student_prompt(boards[i].fen())}],
+                tokenize=False, add_generation_prompt=True, enable_thinking=False)
+                for i in pending]
+            sp = SamplingParams(n=1, temperature=0.0 if attempt == 0 else 0.8,
+                                top_p=0.95, max_tokens=max_tokens, seed=attempt)
+            outs = (llm.generate(prompts, sp, lora_request=lora) if lora
+                    else llm.generate(prompts, sp))
+            still = []
+            for i, o in zip(pending, outs):
+                c = o.outputs[0]
+                mv = parse_trace(c.text, boards[i].fen()).move
+                if mv:
+                    chosen[i] = (mv, c.text, len(c.token_ids), attempt)
+                else:
+                    still.append(i)
+            pending = still
+
+        for i in idx:
+            fen = boards[i].fen()
+            if i in chosen:
+                uci, text, ntok, resampled = chosen[i]
+                fell_back = False
+            else:
+                uci = rngs[i].choice([m.uci() for m in boards[i].legal_moves])
+                text, ntok, resampled, fell_back = "", 0, retries, True
+            boards[i].push(chess.Move.from_uci(uci))
+            after = engine.analyse(boards[i], chess.engine.Limit(nodes=eval_nodes))
+            cp_played = -after["score"].relative.score(mate_score=10000)
+            logs[i].plies.append(MoveLog(
+                ply=len(logs[i].plies), fen=fen, by="model", move=uci,
+                legal=not fell_back, resampled=resampled, fell_back=fell_back,
+                cp_before=pre[i], cp_played=cp_played,
+                wp_loss=max(0.0, win_prob(pre[i]) - win_prob(cp_played)),
+                tokens=ntok, completion=text[:800]))
+
+    for i, b in enumerate(boards):
+        logs[i].result = b.result(claim_draw=True)
+        logs[i].termination = ("checkmate" if b.is_checkmate() else
+                               "stalemate" if b.is_stalemate() else
+                               "insufficient" if b.is_insufficient_material() else
+                               "max_plies" if len(logs[i].plies) >= max_plies else "other")
+    return logs
